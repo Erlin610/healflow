@@ -1,0 +1,11 @@
+spring:
+  application:
+    name: healflow-platform
+
+server:
+  port: 8080
+
+healflow:
+  enabled: true
+  exception-listener-enabled: true
+  high-severity-token: panic

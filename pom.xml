@@ -1,0 +1,234 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <parent>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-parent</artifactId>
+    <version>3.3.6</version>
+    <relativePath/>
+  </parent>
+
+  <groupId>com.healflow</groupId>
+  <artifactId>healflow-parent</artifactId>
+  <version>1.0.0-SNAPSHOT</version>
+  <packaging>pom</packaging>
+
+  <name>Healflow Parent</name>
+
+  <modules>
+    <module>healflow-common</module>
+    <module>healflow-engine</module>
+    <module>healflow-spring-boot-starter</module>
+    <module>healflow-platform</module>
+    <module>healflow-demo</module>
+  </modules>
+
+  <properties>
+    <java.version>21</java.version>
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
+    <enforcer.skip>false</enforcer.skip>
+    <jacoco.version>0.8.12</jacoco.version>
+    <jacoco.line.coverage.minimum>0.90</jacoco.line.coverage.minimum>
+  </properties>
+
+  <dependencyManagement>
+    <dependencies>
+      <dependency>
+        <groupId>com.healflow</groupId>
+        <artifactId>healflow-common</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>com.healflow</groupId>
+        <artifactId>healflow-engine</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>com.healflow</groupId>
+        <artifactId>healflow-spring-boot-starter</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>com.healflow</groupId>
+        <artifactId>healflow-platform</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+    </dependencies>
+  </dependencyManagement>
+
+  <build>
+    <pluginManagement>
+      <plugins>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-compiler-plugin</artifactId>
+          <configuration>
+            <release>${java.version}</release>
+            <compilerArgs>
+              <arg>--enable-preview</arg>
+            </compilerArgs>
+          </configuration>
+        </plugin>
+
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-surefire-plugin</artifactId>
+          <configuration>
+            <argLine>${jacocoArgLine} --enable-preview</argLine>
+            <forkCount>0</forkCount>
+            <failIfNoSpecifiedTests>false</failIfNoSpecifiedTests>
+          </configuration>
+        </plugin>
+
+        <plugin>
+          <groupId>org.jacoco</groupId>
+          <artifactId>jacoco-maven-plugin</artifactId>
+          <version>${jacoco.version}</version>
+          <configuration>
+            <destFile>${maven.multiModuleProjectDirectory}/target/jacoco.exec</destFile>
+            <dataFile>${maven.multiModuleProjectDirectory}/target/jacoco.exec</dataFile>
+            <append>true</append>
+          </configuration>
+          <executions>
+            <execution>
+              <id>jacoco-prepare-agent</id>
+              <goals>
+                <goal>prepare-agent</goal>
+              </goals>
+              <configuration>
+                <propertyName>jacocoArgLine</propertyName>
+              </configuration>
+            </execution>
+            <execution>
+              <id>jacoco-report</id>
+              <phase>verify</phase>
+              <goals>
+                <goal>report</goal>
+              </goals>
+            </execution>
+            <execution>
+              <id>jacoco-check</id>
+              <phase>verify</phase>
+              <goals>
+                <goal>check</goal>
+              </goals>
+              <configuration>
+                <rules>
+                  <rule>
+                    <element>BUNDLE</element>
+                    <limits>
+                      <limit>
+                        <counter>LINE</counter>
+                        <value>COVEREDRATIO</value>
+                        <minimum>${jacoco.line.coverage.minimum}</minimum>
+                      </limit>
+                    </limits>
+                  </rule>
+                </rules>
+              </configuration>
+            </execution>
+          </executions>
+        </plugin>
+      </plugins>
+    </pluginManagement>
+
+    <plugins>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-compiler-plugin</artifactId>
+      </plugin>
+
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-surefire-plugin</artifactId>
+      </plugin>
+
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-enforcer-plugin</artifactId>
+        <executions>
+          <execution>
+            <id>enforce-toolchain</id>
+            <phase>validate</phase>
+            <goals>
+              <goal>enforce</goal>
+            </goals>
+            <configuration>
+              <skip>${enforcer.skip}</skip>
+              <rules>
+                <requireMavenVersion>
+                  <version>[3.9.0,)</version>
+                </requireMavenVersion>
+                <requireJavaVersion>
+                  <version>[21,)</version>
+                </requireJavaVersion>
+              </rules>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+
+      <plugin>
+        <groupId>org.jacoco</groupId>
+        <artifactId>jacoco-maven-plugin</artifactId>
+        <version>${jacoco.version}</version>
+        <inherited>false</inherited>
+        <executions>
+          <execution>
+            <id>jacoco-report-aggregate</id>
+            <phase>verify</phase>
+            <goals>
+              <goal>report-aggregate</goal>
+            </goals>
+            <configuration>
+              <outputDirectory>${project.reporting.outputDirectory}/jacoco-aggregate</outputDirectory>
+              <formats>
+                <format>HTML</format>
+                <format>XML</format>
+                <format>CSV</format>
+              </formats>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-antrun-plugin</artifactId>
+        <inherited>false</inherited>
+        <executions>
+          <execution>
+            <id>coverage-summary</id>
+            <phase>verify</phase>
+            <goals>
+              <goal>run</goal>
+            </goals>
+            <configuration>
+              <target>
+                <property name="jacoco.aggregate.xml" value="${project.reporting.outputDirectory}/jacoco-aggregate/jacoco.xml"/>
+                <property name="jacoco.aggregate.xml.stripped" value="${project.build.directory}/jacoco-aggregate-no-doctype.xml"/>
+                <property name="coverage.summary.file" value="${project.build.directory}/coverage-summary.txt"/>
+                <available file="${jacoco.aggregate.xml}" property="jacoco.xml.present"/>
+                <fail unless="jacoco.xml.present" message="Missing JaCoCo aggregate report: ${jacoco.aggregate.xml}"/>
+                <copy file="${jacoco.aggregate.xml}" tofile="${jacoco.aggregate.xml.stripped}" overwrite="true">
+                  <filterchain>
+                    <replaceregex pattern="&lt;!DOCTYPE[^&gt;]*&gt;" replace=""/>
+                  </filterchain>
+                </copy>
+                <xslt in="${jacoco.aggregate.xml.stripped}"
+                      style="doc/jacoco-summary.xsl"
+                      out="${coverage.summary.file}"/>
+                <loadfile property="coverage.summary" srcFile="${coverage.summary.file}"/>
+                <echo message="${coverage.summary}"/>
+              </target>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+    </plugins>
+  </build>
+</project>

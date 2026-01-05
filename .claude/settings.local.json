@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Skill(codex)",
+      "Bash(codex-wrapper:*)",
+      "Bash(Get-Content \"C:\\\\Users\\\\Administrator\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\E--mine-healflow\\\\tasks\\\\b763bca.output\" -Tail 100)",
+      "Bash(find:*)",
+      "Bash(cat:*)",
+      "Bash(export:*)",
+      "Bash(.tools/apache-maven-3.9.6/apache-maven-3.9.6/bin/mvn:*)",
+      "Bash(git reset:*)",
+      "Bash(git add:*)"
+    ]
+  }
+}

@@ -18,7 +18,31 @@
 *.zip
 *.tar.gz
 *.rar
+.tmp
+.mvn
 
 # virtual machine crash logs, see http://www.java.com/en/download/help/error_hotspot.xml
 hs_err_pid*
 replay_pid*
+
+# Maven
+**/target/
+**/target2/
+.m2/
+.tools/
+
+# Temp files
+.tmp/
+.mvn/
+
+# IDEs
+.idea/
+.vscode/
+*.iml
+.classpath
+.project
+.settings/
+
+# Local sandbox artifacts
+SpawnTest*.java
+tmp-delete-me.txt

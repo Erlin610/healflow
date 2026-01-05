@@ -1,0 +1,7 @@
+server:
+  port: 8081
+
+healflow:
+  app-id: "demo-service-01"
+  server-url: "http://localhost:8080"
+
