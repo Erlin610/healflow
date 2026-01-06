@@ -66,6 +66,23 @@ class InteractiveShellRunnerSandboxCoverageTest {
   }
 
   @Test
+  void timesOutWhenPromptDoesNotMatchAnyInteractionRule() {
+    PromptingHangingProcess process = new PromptingHangingProcess("Continue? (y/n): ");
+    InteractiveShellRunner runner = new InteractiveShellRunner(StandardCharsets.UTF_8, command -> process);
+    ShellCommand command =
+        new ShellCommand(
+            List.of("ignored"),
+            null,
+            Duration.ofMillis(50),
+            Map.of(),
+            List.of(new InteractionRule(Pattern.compile("does-not-match"), "y", 1)));
+
+    ShellTimeoutException ex = assertThrows(ShellTimeoutException.class, () -> runner.run(command));
+    assertTrue(process.destroyed.get());
+    assertTrue(ex.outputSoFar().contains("Continue?"));
+  }
+
+  @Test
   void validatesShellCommandArguments() {
     assertThrows(IllegalArgumentException.class, () -> new ShellCommand(List.of(), null, null, Map.of(), List.of()));
     assertThrows(
@@ -235,6 +252,52 @@ class InteractiveShellRunnerSandboxCoverageTest {
     @Override
     public InputStream getInputStream() {
       return InputStream.nullInputStream();
+    }
+
+    @Override
+    public InputStream getErrorStream() {
+      return InputStream.nullInputStream();
+    }
+
+    @Override
+    public int waitFor() throws InterruptedException {
+      Thread.sleep(Long.MAX_VALUE);
+      return 1;
+    }
+
+    @Override
+    public boolean waitFor(long timeout, TimeUnit unit) {
+      return false;
+    }
+
+    @Override
+    public int exitValue() {
+      throw new IllegalThreadStateException();
+    }
+
+    @Override
+    public void destroy() {
+      destroyed.set(true);
+    }
+  }
+
+  private static final class PromptingHangingProcess extends Process {
+
+    private final ByteArrayInputStream stdout;
+    private final AtomicBoolean destroyed = new AtomicBoolean(false);
+
+    private PromptingHangingProcess(String prompt) {
+      this.stdout = new ByteArrayInputStream(prompt.getBytes(StandardCharsets.UTF_8));
+    }
+
+    @Override
+    public OutputStream getOutputStream() {
+      return OutputStream.nullOutputStream();
+    }
+
+    @Override
+    public InputStream getInputStream() {
+      return stdout;
     }
 
     @Override

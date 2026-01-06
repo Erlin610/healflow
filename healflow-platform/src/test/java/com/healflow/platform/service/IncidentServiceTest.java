@@ -21,6 +21,7 @@ import com.healflow.engine.shell.ShellTimeoutException;
 import com.healflow.platform.controller.IncidentController;
 import com.healflow.platform.controller.ReportController;
 import com.healflow.platform.controller.ReportRequest;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.List;
@@ -29,6 +30,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -47,7 +49,9 @@ class IncidentServiceTest {
   @MockBean private ShellRunner shellRunner;
 
   @Test
-  void processIncidentRunsAsyncAndCallsGitManager() throws Exception {
+  void processIncidentRunsAsyncAndCallsGitManager(@TempDir Path workspace) throws Exception {
+    Files.writeString(workspace.resolve("mock-agent.sh"), "#!/bin/bash\necho ok\n");
+
     IncidentReport report =
         new IncidentReport(
             "app-123",
@@ -63,8 +67,8 @@ class IncidentServiceTest {
     AtomicReference<String> invokedThread = new AtomicReference<>();
     CountDownLatch gitLatch = new CountDownLatch(1);
     CountDownLatch cleanupLatch = new CountDownLatch(1);
+    AtomicReference<ShellCommand> dockerRunCommand = new AtomicReference<>();
     AtomicReference<List<String>> dockerRunArgv = new AtomicReference<>();
-    AtomicReference<List<String>> dockerExecArgv = new AtomicReference<>();
     AtomicReference<List<String>> dockerRmArgv = new AtomicReference<>();
 
     when(gitManager.prepareWorkspace(report.appId(), report.repoUrl(), report.branch()))
@@ -72,7 +76,7 @@ class IncidentServiceTest {
             invocation -> {
               invokedThread.set(Thread.currentThread().getName());
               gitLatch.countDown();
-              return Path.of("E:\\mine\\healflow\\build\\tmp");
+              return workspace;
             });
 
     when(shellRunner.run(any(ShellCommand.class)))
@@ -81,11 +85,8 @@ class IncidentServiceTest {
               ShellCommand command = invocation.getArgument(0);
               List<String> argv = command.argv();
               if (argv.size() >= 2 && argv.get(1).equals("run")) {
+                dockerRunCommand.set(command);
                 dockerRunArgv.set(argv);
-                return new CommandResult(0, "container-1\n");
-              }
-              if (argv.size() >= 2 && argv.get(1).equals("exec")) {
-                dockerExecArgv.set(argv);
                 return new CommandResult(0, "ok");
               }
               if (argv.size() >= 2 && argv.get(1).equals("rm")) {
@@ -113,16 +114,57 @@ class IncidentServiceTest {
     int volumeIndex = runArgv.indexOf("-v") + 1;
     assertTrue(runArgv.get(volumeIndex).endsWith(":/src"));
     assertTrue(runArgv.contains("test-image"));
+    assertTrue(runArgv.containsAll(List.of("bash", "/src/mock-agent.sh")));
 
-    List<String> execArgv = dockerExecArgv.get();
-    assertTrue(execArgv.contains("exec"));
-    assertTrue(execArgv.contains(containerName));
-    assertTrue(execArgv.containsAll(List.of("ls", "-al", "/src")));
+    ShellCommand runCommand = dockerRunCommand.get();
+    assertTrue(runCommand.interactions().size() >= 4);
 
     List<String> rmArgv = dockerRmArgv.get();
     assertTrue(rmArgv.contains("rm"));
     assertTrue(rmArgv.contains("-f"));
     assertTrue(rmArgv.contains(containerName));
+  }
+
+  @Test
+  void processIncidentDefaultsToEmptyEnvironmentWhenNull(@TempDir Path workspace) throws Exception {
+    Files.writeString(workspace.resolve("mock-agent.sh"), "#!/bin/bash\necho ok\n");
+
+    IncidentReport report =
+        new IncidentReport(
+            "app-123",
+            "https://example.invalid/repo.git",
+            "main",
+            "NullPointerException",
+            "boom",
+            "stack",
+            null,
+            Instant.parse("2026-01-05T00:00:00Z"));
+
+    CountDownLatch cleanupLatch = new CountDownLatch(1);
+    AtomicReference<List<String>> dockerRunArgv = new AtomicReference<>();
+
+    when(gitManager.prepareWorkspace(report.appId(), report.repoUrl(), report.branch()))
+        .thenReturn(workspace);
+    when(shellRunner.run(any(ShellCommand.class)))
+        .thenAnswer(
+            invocation -> {
+              ShellCommand command = invocation.getArgument(0);
+              List<String> argv = command.argv();
+              if (argv.size() >= 2 && argv.get(1).equals("run")) {
+                dockerRunArgv.set(argv);
+                return new CommandResult(0, "ok");
+              }
+              if (argv.size() >= 2 && argv.get(1).equals("rm")) {
+                cleanupLatch.countDown();
+                return new CommandResult(0, "");
+              }
+              return new CommandResult(0, "");
+            });
+
+    incidentService.processIncident(report);
+
+    assertTrue(cleanupLatch.await(2, TimeUnit.SECONDS));
+    assertTrue(!dockerRunArgv.get().contains("-e"));
   }
 
   @Test
@@ -159,7 +201,9 @@ class IncidentServiceTest {
   }
 
   @Test
-  void processIncidentCleansUpContainerWhenExecFails() throws Exception {
+  void processIncidentCleansUpContainerWhenRunFails(@TempDir Path workspace) throws Exception {
+    Files.writeString(workspace.resolve("mock-agent.sh"), "#!/bin/bash\necho ok\n");
+
     IncidentReport report =
         new IncidentReport(
             "app 123",
@@ -174,17 +218,14 @@ class IncidentServiceTest {
     CountDownLatch cleanupLatch = new CountDownLatch(1);
 
     when(gitManager.prepareWorkspace(report.appId(), report.repoUrl(), report.branch()))
-        .thenReturn(Path.of("E:\\mine\\healflow\\build\\tmp"));
+        .thenReturn(workspace);
     when(shellRunner.run(any(ShellCommand.class)))
         .thenAnswer(
             invocation -> {
               ShellCommand command = invocation.getArgument(0);
               List<String> argv = command.argv();
               if (argv.size() >= 2 && argv.get(1).equals("run")) {
-                return new CommandResult(0, "container-2\n");
-              }
-              if (argv.size() >= 2 && argv.get(1).equals("exec")) {
-                return new CommandResult(1, "exec failed");
+                return new CommandResult(1, "mock agent failed");
               }
               if (argv.size() >= 2 && argv.get(1).equals("rm")) {
                 cleanupLatch.countDown();
@@ -200,7 +241,9 @@ class IncidentServiceTest {
   }
 
   @Test
-  void processIncidentCleansUpContainerWhenExecTimesOut() throws Exception {
+  void processIncidentCleansUpContainerWhenRunTimesOut(@TempDir Path workspace) throws Exception {
+    Files.writeString(workspace.resolve("mock-agent.sh"), "#!/bin/bash\necho ok\n");
+
     IncidentReport report =
         new IncidentReport(
             "app 123",
@@ -216,7 +259,7 @@ class IncidentServiceTest {
     AtomicReference<List<String>> dockerRunArgv = new AtomicReference<>();
 
     when(gitManager.prepareWorkspace(report.appId(), report.repoUrl(), report.branch()))
-        .thenReturn(Path.of("E:\\mine\\healflow\\build\\tmp"));
+        .thenReturn(workspace);
     when(shellRunner.run(any(ShellCommand.class)))
         .thenAnswer(
             invocation -> {
@@ -224,9 +267,6 @@ class IncidentServiceTest {
               List<String> argv = command.argv();
               if (argv.size() >= 2 && argv.get(1).equals("run")) {
                 dockerRunArgv.set(argv);
-                return new CommandResult(0, "container-3\n");
-              }
-              if (argv.size() >= 2 && argv.get(1).equals("exec")) {
                 throw new ShellTimeoutException(command, "partial output");
               }
               if (argv.size() >= 2 && argv.get(1).equals("rm")) {
@@ -247,7 +287,9 @@ class IncidentServiceTest {
   }
 
   @Test
-  void processIncidentCleansUpContainerWhenSandboxOoms() throws Exception {
+  void processIncidentCleansUpContainerWhenSandboxOoms(@TempDir Path workspace) throws Exception {
+    Files.writeString(workspace.resolve("mock-agent.sh"), "#!/bin/bash\necho ok\n");
+
     IncidentReport report =
         new IncidentReport(
             "app-oom",
@@ -262,16 +304,13 @@ class IncidentServiceTest {
     CountDownLatch cleanupLatch = new CountDownLatch(1);
 
     when(gitManager.prepareWorkspace(report.appId(), report.repoUrl(), report.branch()))
-        .thenReturn(Path.of("E:\\mine\\healflow\\build\\tmp"));
+        .thenReturn(workspace);
     when(shellRunner.run(any(ShellCommand.class)))
         .thenAnswer(
             invocation -> {
               ShellCommand command = invocation.getArgument(0);
               List<String> argv = command.argv();
               if (argv.size() >= 2 && argv.get(1).equals("run")) {
-                return new CommandResult(0, "container-oom\n");
-              }
-              if (argv.size() >= 2 && argv.get(1).equals("exec")) {
                 return new CommandResult(137, "Killed");
               }
               if (argv.size() >= 2 && argv.get(1).equals("rm")) {
@@ -288,7 +327,7 @@ class IncidentServiceTest {
   }
 
   @Test
-  void processIncidentSkipsCleanupWhenContainerFailsToStart() throws Exception {
+  void processIncidentDoesNotStartDockerWhenScriptMissing(@TempDir Path workspace) throws Exception {
     IncidentReport report =
         new IncidentReport(
             " ",
@@ -300,27 +339,27 @@ class IncidentServiceTest {
             Map.of(),
             Instant.parse("2026-01-05T00:00:00Z"));
 
-    CountDownLatch startLatch = new CountDownLatch(1);
+    CountDownLatch gitLatch = new CountDownLatch(1);
+    CountDownLatch dockerLatch = new CountDownLatch(1);
 
     when(gitManager.prepareWorkspace(report.appId(), report.repoUrl(), report.branch()))
-        .thenReturn(Path.of("E:\\mine\\healflow\\build\\tmp"));
+        .thenAnswer(
+            invocation -> {
+              gitLatch.countDown();
+              return workspace;
+            });
     when(shellRunner.run(any(ShellCommand.class)))
         .thenAnswer(
             invocation -> {
-              ShellCommand command = invocation.getArgument(0);
-              List<String> argv = command.argv();
-              if (argv.size() >= 2 && argv.get(1).equals("run")) {
-                startLatch.countDown();
-                return new CommandResult(1, "docker down");
-              }
-              return new CommandResult(0, "");
+              dockerLatch.countDown();
+              return new CommandResult(0, "unexpected");
             });
 
     incidentService.processIncident(report);
 
-    assertTrue(startLatch.await(2, TimeUnit.SECONDS));
-    verify(shellRunner, never())
-        .run(argThat(command -> command.argv().size() >= 2 && command.argv().get(1).equals("rm")));
+    assertTrue(gitLatch.await(2, TimeUnit.SECONDS));
+    assertTrue(!dockerLatch.await(250, TimeUnit.MILLISECONDS));
+    verify(shellRunner, never()).run(any(ShellCommand.class));
   }
 
   @Test

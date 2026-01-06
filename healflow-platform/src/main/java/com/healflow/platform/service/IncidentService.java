@@ -3,9 +3,14 @@ package com.healflow.platform.service;
 import com.healflow.common.dto.IncidentReport;
 import com.healflow.engine.git.GitWorkspaceManager;
 import com.healflow.engine.sandbox.DockerSandboxManager;
+import com.healflow.engine.sandbox.SandboxException;
 import com.healflow.engine.shell.CommandResult;
+import com.healflow.engine.shell.ShellTimeoutException;
+import java.nio.file.Files;
 import java.time.Instant;
+import java.time.Duration;
 import java.util.List;
+import java.util.Map;
 import java.nio.file.Path;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -17,6 +22,11 @@ import org.springframework.stereotype.Service;
 public class IncidentService {
 
   private static final Logger log = LoggerFactory.getLogger(IncidentService.class);
+  private static final String MOCK_AGENT_SCRIPT_NAME = "mock-agent.sh";
+  private static final String CONTAINER_WORKSPACE = "/src";
+  private static final String CONTAINER_SCRIPT_PATH = CONTAINER_WORKSPACE + "/" + MOCK_AGENT_SCRIPT_NAME;
+  private static final Duration MOCK_AGENT_TIMEOUT = Duration.ofSeconds(60);
+
   private final GitWorkspaceManager gitManager;
   private final DockerSandboxManager dockerSandboxManager;
   private final String sandboxImage;
@@ -40,12 +50,33 @@ public class IncidentService {
 
       log.info("Source code ready at: {}", sourceCodePath);
 
-      // Phase 3: start Docker sandbox for analysis
+      Path scriptPath = sourceCodePath.resolve(MOCK_AGENT_SCRIPT_NAME);
+      if (!Files.isRegularFile(scriptPath)) {
+        log.error("Mock agent script not found at: {}", scriptPath);
+        return;
+      }
+
+      // Phase 4: run mock agent in interactive Docker sandbox
       String containerName = buildContainerName(report.appId());
+      Map<String, String> environment = report.environment() == null ? Map.of() : report.environment();
       CommandResult result =
-          dockerSandboxManager.executeInSandbox(
-              containerName, sourceCodePath, "/src", sandboxImage, List.of("ls", "-al", "/src"));
-      log.info("Sandbox (/src) output:\n{}", result.output());
+          dockerSandboxManager.executeInteractiveRunInSandbox(
+              containerName,
+              sourceCodePath,
+              CONTAINER_WORKSPACE,
+              sandboxImage,
+              environment,
+              List.of("bash", CONTAINER_SCRIPT_PATH),
+              MOCK_AGENT_TIMEOUT,
+              List.of());
+      log.info("Mock agent output:\n{}", result.output());
+    } catch (SandboxException e) {
+      Throwable cause = e.getCause();
+      if (cause instanceof ShellTimeoutException timeout) {
+        log.error("Mock agent timed out:\n{}", timeout.outputSoFar(), e);
+        return;
+      }
+      log.error("Mock agent failed:\n{}", e.details(), e);
     } catch (Exception e) {
       log.error("Processing failed", e);
     }

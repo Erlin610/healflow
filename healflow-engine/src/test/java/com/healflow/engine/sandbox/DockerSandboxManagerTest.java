@@ -413,4 +413,153 @@ class DockerSandboxManagerTest {
     assertEquals(3, runner.commands().size());
     assertEquals(List.of("docker", "rm", "-f", "task-1"), runner.commands().get(2).argv());
   }
+
+  @Test
+  void executeInteractiveRunInSandboxRunsDockerRunIAndCleansUp() {
+    RecordingShellRunner runner = new RecordingShellRunner();
+    runner.enqueueResult(new CommandResult(0, "ok\n"));
+    runner.enqueueResult(new CommandResult(0, ""));
+
+    DockerSandboxManager manager = new DockerSandboxManager(runner);
+
+    Map<String, String> env = new LinkedHashMap<>();
+    env.put("A", "B");
+
+    CommandResult result =
+        manager.executeInteractiveRunInSandbox(
+            "task-1",
+            Path.of("C:\\workspace"),
+            "/container/src",
+            "my-image:latest",
+            env,
+            List.of("echo", "hi"),
+            null,
+            List.of());
+
+    assertEquals(0, result.exitCode());
+    assertEquals("ok\n", result.output());
+    assertEquals(2, runner.commands().size());
+
+    ShellCommand runCommand = runner.commands().get(0);
+    assertTrue(runCommand.argv().containsAll(List.of("docker", "run", "-i", "--name", "task-1")));
+    assertTrue(runCommand.argv().containsAll(List.of("-w", "/container/src")));
+    assertTrue(runCommand.argv().containsAll(List.of("-e", "A=B")));
+    assertEquals(Duration.ofMinutes(2), runCommand.timeout());
+
+    List<InteractionRule> interactions = runCommand.interactions();
+    assertFalse(interactions.isEmpty());
+    assertTrue(containsEquivalent(interactions, Pattern.compile("(?i)\\[\\s*y\\s*/\\s*n\\s*\\]"), "y"));
+
+    assertEquals(List.of("docker", "rm", "-f", "task-1"), runner.commands().get(1).argv());
+  }
+
+  @Test
+  void executeInteractiveRunInSandboxAlwaysRemovesContainerOnFailure() {
+    RecordingShellRunner runner = new RecordingShellRunner();
+    runner.enqueueResult(new CommandResult(2, "bad"));
+    runner.enqueueResult(new CommandResult(0, ""));
+
+    DockerSandboxManager manager = new DockerSandboxManager(runner);
+
+    SandboxException ex =
+        assertThrows(
+            SandboxException.class,
+            () ->
+                manager.executeInteractiveRunInSandbox(
+                    "task-1",
+                    Path.of("C:\\workspace"),
+                    "/container/src",
+                    "my-image:latest",
+                    Map.of(),
+                    List.of("echo", "hi"),
+                    Duration.ofSeconds(1),
+                    List.of()));
+
+    assertTrue(ex.details().contains("bad"));
+    assertEquals(2, runner.commands().size());
+    assertEquals(List.of("docker", "rm", "-f", "task-1"), runner.commands().get(1).argv());
+  }
+
+  @Test
+  void executeInteractiveRunInSandboxMergesAutoApproveRules() {
+    RecordingShellRunner runner = new RecordingShellRunner();
+    runner.enqueueResult(new CommandResult(0, "ok\n"));
+    runner.enqueueResult(new CommandResult(0, ""));
+
+    DockerSandboxManager manager = new DockerSandboxManager(runner);
+    InteractionRule custom = new InteractionRule(Pattern.compile("prompt"), "custom", 1);
+
+    manager.executeInteractiveRunInSandbox(
+        "task-1",
+        Path.of("C:\\workspace"),
+        "/container/src",
+        "my-image:latest",
+        Map.of(),
+        List.of("echo", "hi"),
+        Duration.ofSeconds(1),
+        List.of(custom));
+
+    List<InteractionRule> interactions = runner.commands().get(0).interactions();
+    assertTrue(interactions.size() > 1);
+    assertEquals("custom", interactions.get(0).response());
+    assertTrue(containsEquivalent(interactions, Pattern.compile("(?i)\\(\\s*y\\s*/\\s*n\\s*\\)"), "y"));
+  }
+
+  @Test
+  void executeInteractiveRunInSandboxRemovesContainerWhenRunTimesOut() {
+    class TimeoutShellRunner implements ShellRunner {
+      private final List<ShellCommand> commands = new ArrayList<>();
+
+      List<ShellCommand> commands() {
+        return commands;
+      }
+
+      @Override
+      public CommandResult run(ShellCommand command) {
+        commands.add(command);
+        List<String> argv = command.argv();
+        if (argv.size() >= 2 && argv.get(1).equals("run")) {
+          throw new ShellTimeoutException(command, "partial output");
+        }
+        if (argv.size() >= 2 && argv.get(1).equals("rm")) {
+          return new CommandResult(0, "");
+        }
+        throw new AssertionError("Unexpected docker command: " + argv);
+      }
+    }
+
+    TimeoutShellRunner runner = new TimeoutShellRunner();
+    DockerSandboxManager manager = new DockerSandboxManager(runner);
+
+    SandboxException ex =
+        assertThrows(
+            SandboxException.class,
+            () ->
+                manager.executeInteractiveRunInSandbox(
+                    "task-1",
+                    Path.of("C:\\workspace"),
+                    "/container/src",
+                    "my-image:latest",
+                    Map.of(),
+                    List.of("echo", "hi"),
+                    Duration.ofSeconds(1),
+                    List.of()));
+
+    assertInstanceOf(ShellTimeoutException.class, ex.getCause());
+    assertEquals(2, runner.commands().size());
+    assertEquals(List.of("docker", "rm", "-f", "task-1"), runner.commands().get(1).argv());
+  }
+
+  private static boolean containsEquivalent(List<InteractionRule> rules, Pattern pattern, String response) {
+    for (InteractionRule rule : rules) {
+      if (!rule.response().equals(response)) {
+        continue;
+      }
+      Pattern existing = rule.pattern();
+      if (existing.flags() == pattern.flags() && existing.pattern().equals(pattern.pattern())) {
+        return true;
+      }
+    }
+    return false;
+  }
 }

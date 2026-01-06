@@ -19,6 +19,7 @@ public final class DockerSandboxManager {
   private static final Duration DEFAULT_TIMEOUT = Duration.ofMinutes(2);
 
   private final ShellRunner shellRunner;
+  private final InteractiveRunner interactiveRunner;
   private final String dockerExecutable;
 
   public DockerSandboxManager(ShellRunner shellRunner) {
@@ -27,6 +28,7 @@ public final class DockerSandboxManager {
 
   public DockerSandboxManager(ShellRunner shellRunner, String dockerExecutable) {
     this.shellRunner = Arguments.requireNonNull(shellRunner, "shellRunner");
+    this.interactiveRunner = new InteractiveRunner(shellRunner);
     this.dockerExecutable = Arguments.requireNonBlank(dockerExecutable, "dockerExecutable");
   }
 
@@ -154,10 +156,86 @@ public final class DockerSandboxManager {
     }
   }
 
+  public CommandResult executeInteractiveRunInSandbox(
+      String containerName,
+      Path hostWorkspace,
+      String containerWorkspace,
+      String image,
+      Map<String, String> environment,
+      List<String> argv,
+      Duration timeout,
+      List<InteractionRule> interactions) {
+    String safeName = requireSafeContainerName(containerName);
+    Arguments.requireNonNull(hostWorkspace, "hostWorkspace");
+    Arguments.requireNonBlank(containerWorkspace, "containerWorkspace");
+    Arguments.requireNonBlank(image, "image");
+    Arguments.requireNonNull(environment, "environment");
+    Arguments.requireNonNull(argv, "argv");
+    if (argv.isEmpty()) {
+      throw new IllegalArgumentException("argv must be non-empty");
+    }
+    if (argv.stream().anyMatch(a -> a == null || a.isBlank())) {
+      throw new IllegalArgumentException("argv must be non-empty and contain no blank arguments");
+    }
+    if (timeout != null && timeout.isNegative()) {
+      throw new IllegalArgumentException("timeout must not be negative");
+    }
+    Arguments.requireNonNull(interactions, "interactions");
+
+    Duration effectiveTimeout = timeout == null ? DEFAULT_TIMEOUT : timeout;
+
+    List<String> dockerArgv = new ArrayList<>();
+    dockerArgv.add(dockerExecutable);
+    dockerArgv.addAll(List.of("run", "-i", "--name", safeName));
+    dockerArgv.addAll(List.of("-v", hostWorkspace.toString() + ":" + containerWorkspace));
+    dockerArgv.addAll(List.of("-w", containerWorkspace));
+
+    for (Map.Entry<String, String> entry : environment.entrySet()) {
+      String key = Arguments.requireNonBlank(entry.getKey(), "environment key");
+      String value = Arguments.requireNonNull(entry.getValue(), "environment value");
+      dockerArgv.add("-e");
+      dockerArgv.add(key + "=" + value);
+    }
+
+    dockerArgv.add(image);
+    dockerArgv.addAll(argv);
+
+    RuntimeException failure = null;
+    try {
+      return runInteractive(new ShellCommand(dockerArgv, null, effectiveTimeout, Map.of(), interactions));
+    } catch (RuntimeException e) {
+      failure = e;
+      throw e;
+    } finally {
+      try {
+        removeForce(safeName);
+      } catch (RuntimeException cleanupFailure) {
+        if (failure != null) {
+          failure.addSuppressed(cleanupFailure);
+        } else {
+          throw cleanupFailure;
+        }
+      }
+    }
+  }
+
   private CommandResult run(ShellCommand command) {
     CommandResult result;
     try {
       result = shellRunner.run(command);
+    } catch (ShellExecutionException e) {
+      throw new SandboxException("Docker command failed to execute", String.join(" ", command.argv()), e);
+    }
+    if (!result.isSuccess()) {
+      throw new SandboxException("Docker command failed", formatFailure(command.argv(), result));
+    }
+    return result;
+  }
+
+  private CommandResult runInteractive(ShellCommand command) {
+    CommandResult result;
+    try {
+      result = interactiveRunner.run(command);
     } catch (ShellExecutionException e) {
       throw new SandboxException("Docker command failed to execute", String.join(" ", command.argv()), e);
     }
