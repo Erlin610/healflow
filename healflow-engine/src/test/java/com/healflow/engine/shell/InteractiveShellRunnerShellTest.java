@@ -16,7 +16,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import org.junit.jupiter.api.Test;
 
-class InteractiveShellRunnerShellTest {
+class InteractiveShellRunnerSandboxCoverageTest {
 
   @Test
   void runsCommandAndCapturesOutput() {

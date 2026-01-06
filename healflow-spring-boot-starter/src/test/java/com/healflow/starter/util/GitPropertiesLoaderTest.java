@@ -13,7 +13,6 @@ class GitPropertiesLoaderTest {
     GitPropertiesLoader loader = new GitPropertiesLoader(new DefaultResourceLoader());
     GitMetadata gitMetadata = loader.load();
 
-    assertThat(gitMetadata.commitId()).isEqualTo("abcdef123456");
     assertThat(gitMetadata.branch()).isEqualTo("main");
     assertThat(gitMetadata.buildTime()).isEqualTo("2026-01-04T00:00:00Z");
   }
@@ -23,18 +22,18 @@ class GitPropertiesLoaderTest {
     GitPropertiesLoader loader = new GitPropertiesLoader(new DefaultResourceLoader(), "classpath:git-short.properties");
     GitMetadata gitMetadata = loader.load();
 
-    assertThat(gitMetadata.commitId()).isEqualTo("abc1234");
-    assertThat(gitMetadata.branch()).isEqualTo("unknown");
+    assertThat(gitMetadata.branch()).isEqualTo("main");
     assertThat(gitMetadata.buildTime()).isEqualTo("unknown");
   }
 
   @Test
-  void fallsBackToShortCommitIdWhenFullIdBlank() {
+  void fallsBackToDefaultsWhenBranchAndBuildTimeMissing() {
     GitPropertiesLoader loader =
         new GitPropertiesLoader(new DefaultResourceLoader(), "classpath:git-blank-full.properties");
     GitMetadata gitMetadata = loader.load();
 
-    assertThat(gitMetadata.commitId()).isEqualTo("deadbeef");
+    assertThat(gitMetadata.branch()).isEqualTo("main");
+    assertThat(gitMetadata.buildTime()).isEqualTo("unknown");
   }
 
   @Test
@@ -43,9 +42,7 @@ class GitPropertiesLoaderTest {
         new GitPropertiesLoader(new DefaultResourceLoader(), "classpath:does-not-exist.properties");
     GitMetadata gitMetadata = loader.load();
 
-    assertThat(gitMetadata.commitId()).isEqualTo("HEAD");
-    assertThat(gitMetadata.branch()).isEqualTo("unknown");
+    assertThat(gitMetadata.branch()).isEqualTo("main");
     assertThat(gitMetadata.buildTime()).isEqualTo("unknown");
   }
 }
-

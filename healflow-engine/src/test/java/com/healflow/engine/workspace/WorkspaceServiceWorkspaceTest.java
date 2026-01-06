@@ -15,7 +15,7 @@ import org.eclipse.jgit.transport.URIish;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
-class WorkspaceServiceWorkspaceTest {
+class WorkspaceServiceSandboxTest {
 
   @Test
   void preparesAndRefreshesWorkspace(@TempDir Path tempDir) throws Exception {

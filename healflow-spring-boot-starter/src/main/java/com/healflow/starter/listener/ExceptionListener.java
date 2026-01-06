@@ -59,7 +59,6 @@ public final class ExceptionListener
     StringWriter sw = new StringWriter();
     throwable.printStackTrace(new PrintWriter(sw));
     return "thread=" + thread.getName()
-        + "\ncommitId=" + gitMetadata.commitId()
         + "\nbranch=" + gitMetadata.branch()
         + "\nbuildTime=" + gitMetadata.buildTime()
         + "\n"

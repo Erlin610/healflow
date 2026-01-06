@@ -6,12 +6,12 @@ import jakarta.validation.constraints.NotBlank;
 public record IncidentReportDto(
     @NotBlank String appName,
     @NotBlank String stackTrace,
-    @NotBlank String commitId) {
+    @NotBlank String branch) {
 
   public IncidentReportDto {
     appName = Arguments.requireNonBlank(appName, "appName");
     stackTrace = Arguments.requireNonBlank(stackTrace, "stackTrace");
-    commitId = Arguments.requireNonBlank(commitId, "commitId");
+    branch = Arguments.requireNonBlank(branch, "branch");
   }
 
   public static Builder builder() {
@@ -22,7 +22,7 @@ public record IncidentReportDto(
 
     private String appName;
     private String stackTrace;
-    private String commitId;
+    private String branch;
 
     private Builder() {}
 
@@ -36,14 +36,13 @@ public record IncidentReportDto(
       return this;
     }
 
-    public Builder commitId(String commitId) {
-      this.commitId = commitId;
+    public Builder branch(String branch) {
+      this.branch = branch;
       return this;
     }
 
     public IncidentReportDto build() {
-      return new IncidentReportDto(appName, stackTrace, commitId);
+      return new IncidentReportDto(appName, stackTrace, branch);
     }
   }
 }
-

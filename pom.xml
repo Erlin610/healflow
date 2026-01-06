@@ -33,6 +33,7 @@
     <enforcer.skip>false</enforcer.skip>
     <jacoco.version>0.8.12</jacoco.version>
     <jacoco.line.coverage.minimum>0.90</jacoco.line.coverage.minimum>
+    <jacoco.dump.skip>true</jacoco.dump.skip>
   </properties>
 
   <dependencyManagement>
@@ -77,12 +78,12 @@
         <plugin>
           <groupId>org.apache.maven.plugins</groupId>
           <artifactId>maven-surefire-plugin</artifactId>
-          <configuration>
-            <argLine>${jacocoArgLine} --enable-preview</argLine>
+            <configuration>
+              <argLine>${jacocoArgLine} --enable-preview</argLine>
             <forkCount>0</forkCount>
-            <failIfNoSpecifiedTests>false</failIfNoSpecifiedTests>
-          </configuration>
-        </plugin>
+              <failIfNoSpecifiedTests>false</failIfNoSpecifiedTests>
+            </configuration>
+          </plugin>
 
         <plugin>
           <groupId>org.jacoco</groupId>
@@ -101,6 +102,18 @@
               </goals>
               <configuration>
                 <propertyName>jacocoArgLine</propertyName>
+              </configuration>
+            </execution>
+            <execution>
+              <id>jacoco-dump</id>
+              <phase>verify</phase>
+              <goals>
+                <goal>dump</goal>
+              </goals>
+              <configuration>
+                <skip>${jacoco.dump.skip}</skip>
+                <append>false</append>
+                <destFile>${maven.multiModuleProjectDirectory}/target/jacoco.exec</destFile>
               </configuration>
             </execution>
             <execution>

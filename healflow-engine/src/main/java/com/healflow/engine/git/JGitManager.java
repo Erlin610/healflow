@@ -17,6 +17,10 @@ import org.eclipse.jgit.lib.Repository;
 import org.eclipse.jgit.transport.PushResult;
 import org.eclipse.jgit.transport.RefSpec;
 
+/**
+ * @deprecated Use {@link GitWorkspaceManager} for workspace preparation and checkout.
+ */
+@Deprecated(since = "1.0.0-SNAPSHOT", forRemoval = true)
 public final class JGitManager {
 
   private static final PersonIdent DEFAULT_AUTHOR = new PersonIdent("healflow", "healflow@local");

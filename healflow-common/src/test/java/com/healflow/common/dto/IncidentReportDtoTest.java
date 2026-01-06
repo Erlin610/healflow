@@ -26,12 +26,12 @@ class IncidentReportDtoTest {
         IncidentReportDto.builder()
             .appName("order-service")
             .stackTrace("boom")
-            .commitId("abc123")
+            .branch("main")
             .build();
 
     assertEquals("order-service", report.appName());
     assertEquals("boom", report.stackTrace());
-    assertEquals("abc123", report.commitId());
+    assertEquals("main", report.branch());
   }
 
   @Test
@@ -52,16 +52,15 @@ class IncidentReportDtoTest {
 
   @Test
   void json_roundTrip() throws Exception {
-    IncidentReportDto report = new IncidentReportDto("order-service", "boom", "abc123");
+    IncidentReportDto report = new IncidentReportDto("order-service", "boom", "main");
 
     String json = mapper.writeValueAsString(report);
     JsonNode node = mapper.readTree(json);
     assertEquals("order-service", node.get("appName").asText());
     assertEquals("boom", node.get("stackTrace").asText());
-    assertEquals("abc123", node.get("commitId").asText());
+    assertEquals("main", node.get("branch").asText());
 
     IncidentReportDto parsed = mapper.readValue(json, IncidentReportDto.class);
     assertEquals(report, parsed);
   }
 }
-

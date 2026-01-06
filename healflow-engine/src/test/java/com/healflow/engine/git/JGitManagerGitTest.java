@@ -2,6 +2,7 @@ package com.healflow.engine.git;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import java.lang.reflect.Field;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import org.eclipse.jgit.api.Git;
@@ -14,19 +15,68 @@ import org.eclipse.jgit.transport.URIish;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
-class JGitManagerGitTest {
+class GitWorkspaceManagerSandboxTest {
 
   @Test
-  void clonesCommitsResetsAndPushes(@TempDir Path tempDir) throws Exception {
+  void preparesAndRefreshesWorkspace(@TempDir Path tempDir) throws Exception {
     Path originBare = tempDir.resolve("origin.git");
     Files.createDirectories(originBare);
     try (Git ignored = Git.init().setBare(true).setDirectory(originBare.toFile()).call()) {}
 
     PersonIdent author = new PersonIdent("Test User", "test@example.com");
-    try (Git seed = Git.init().setInitialBranch("main").setDirectory(tempDir.resolve("seed").toFile()).call()) {
-      Files.writeString(seed.getRepository().getWorkTree().toPath().resolve("a.txt"), "one");
+
+    try (Git seed =
+        Git.init().setInitialBranch("main").setDirectory(tempDir.resolve("seed").toFile()).call()) {
+      Path workTree = seed.getRepository().getWorkTree().toPath();
+
+      Files.writeString(workTree.resolve("version.txt"), "v1");
       seed.add().addFilepattern(".").call();
-      seed.commit().setMessage("init").setAuthor(author).setCommitter(author).call();
+      seed.commit().setMessage("v1").setAuthor(author).setCommitter(author).call();
+
+      seed.remoteAdd().setName("origin").setUri(new URIish(originBare.toUri().toString())).call();
+      seed.push()
+          .setRemote("origin")
+          .setRefSpecs(new RefSpec(Constants.R_HEADS + "main:" + Constants.R_HEADS + "main"))
+          .call();
+      pointHeadToMain(originBare);
+
+      GitWorkspaceManager manager = newManager(tempDir.resolve("workspaces"));
+      String originUrl = originBare.toUri().toString();
+      Path ws = manager.prepareWorkspace("app-1", originUrl, "main");
+      assertEquals("v1", Files.readString(ws.resolve("version.txt")));
+
+      Files.writeString(ws.resolve("tmp.txt"), "untracked");
+
+      Files.writeString(workTree.resolve("version.txt"), "v2");
+      seed.add().addFilepattern(".").call();
+      seed.commit().setMessage("v2").setAuthor(author).setCommitter(author).call();
+      seed.push()
+          .setRemote("origin")
+          .setRefSpecs(new RefSpec(Constants.R_HEADS + "main:" + Constants.R_HEADS + "main"))
+          .call();
+
+      Path ws2 = manager.prepareWorkspace("app-1", originUrl, "main");
+      assertEquals(ws, ws2);
+      assertEquals("v2", Files.readString(ws.resolve("version.txt")));
+      assertTrue(Files.exists(ws.resolve("tmp.txt")));
+    }
+  }
+
+  @Test
+  void defaultsToMainWhenBranchBlank(@TempDir Path tempDir) throws Exception {
+    Path originBare = tempDir.resolve("origin.git");
+    Files.createDirectories(originBare);
+    try (Git ignored = Git.init().setBare(true).setDirectory(originBare.toFile()).call()) {}
+
+    PersonIdent author = new PersonIdent("Test User", "test@example.com");
+
+    try (Git seed =
+        Git.init().setInitialBranch("main").setDirectory(tempDir.resolve("seed").toFile()).call()) {
+      Path workTree = seed.getRepository().getWorkTree().toPath();
+      Files.writeString(workTree.resolve("version.txt"), "v1");
+      seed.add().addFilepattern(".").call();
+      seed.commit().setMessage("v1").setAuthor(author).setCommitter(author).call();
+
       seed.remoteAdd().setName("origin").setUri(new URIish(originBare.toUri().toString())).call();
       seed.push()
           .setRemote("origin")
@@ -35,80 +85,18 @@ class JGitManagerGitTest {
     }
     pointHeadToMain(originBare);
 
-    JGitManager manager = new JGitManager();
-
-    Path clone = tempDir.resolve("clone");
-    manager.cloneRepository(originBare.toUri().toString(), clone);
-
-    String baseCommit = manager.headCommit(clone);
-    manager.createOrResetBranch(clone, "feature", Constants.R_REMOTES + "origin/main");
-    manager.createOrResetBranch(clone, "feature", Constants.R_REMOTES + "origin/main");
-    Files.writeString(clone.resolve("b.txt"), "two");
-    String featureCommit = manager.commitAll(clone, "add b");
-    assertNotEquals(baseCommit, featureCommit);
-
-    Path untracked = clone.resolve("untracked.txt");
-    Files.writeString(untracked, "tmp");
-    assertTrue(Files.exists(untracked));
-    manager.clean(clone);
-    assertFalse(Files.exists(untracked));
-
-    manager.hardReset(clone, baseCommit);
-    assertEquals(baseCommit, manager.headCommit(clone));
-    manager.checkout(clone, "feature");
-    assertEquals("feature", manager.currentBranch(clone));
-    manager.push(clone);
-
-    try (Repository repo =
-        new FileRepositoryBuilder().setGitDir(originBare.toFile()).setBare().build()) {
-      assertNotNull(repo.exactRef(Constants.R_HEADS + "feature"));
-    }
+    GitWorkspaceManager manager = newManager(tempDir.resolve("workspaces"));
+    Path ws = manager.prepareWorkspace("app-1", originBare.toUri().toString(), null);
+    assertEquals("v1", Files.readString(ws.resolve("version.txt")));
   }
 
   @Test
-  void refusesToPushDetachedHead(@TempDir Path tempDir) throws Exception {
-    Path originBare = tempDir.resolve("origin.git");
-    Files.createDirectories(originBare);
-    try (Git ignored = Git.init().setBare(true).setDirectory(originBare.toFile()).call()) {}
-
-    PersonIdent author = new PersonIdent("Test User", "test@example.com");
-    try (Git seed = Git.init().setInitialBranch("main").setDirectory(tempDir.resolve("seed").toFile()).call()) {
-      Files.writeString(seed.getRepository().getWorkTree().toPath().resolve("a.txt"), "one");
-      seed.add().addFilepattern(".").call();
-      seed.commit().setMessage("init").setAuthor(author).setCommitter(author).call();
-      seed.remoteAdd().setName("origin").setUri(new URIish(originBare.toUri().toString())).call();
-      seed.push()
-          .setRemote("origin")
-          .setRefSpecs(new RefSpec(Constants.R_HEADS + "main:" + Constants.R_HEADS + "main"))
-          .call();
-    }
-    pointHeadToMain(originBare);
-
-    JGitManager manager = new JGitManager();
-    Path clone = tempDir.resolve("clone");
-    manager.cloneRepository(originBare.toUri().toString(), clone);
-
-    String head = manager.headCommit(clone);
-    manager.checkout(clone, head);
-
-    GitException ex = assertThrows(GitException.class, () -> manager.push(clone));
-    assertTrue(ex.getMessage().toLowerCase().contains("detached"));
-  }
-
-  @Test
-  void failsWhenRepositoryCannotBeOpened(@TempDir Path tempDir) {
-    JGitManager manager = new JGitManager();
-    GitException ex = assertThrows(GitException.class, () -> manager.fetch(tempDir.resolve("missing")));
-    assertNotNull(ex.getCause());
-  }
-
-  @Test
-  void failsWhenCloneUrlIsInvalid(@TempDir Path tempDir) {
-    JGitManager manager = new JGitManager();
-    GitException ex =
+  void wrapsFailures(@TempDir Path tempDir) throws Exception {
+    GitWorkspaceManager manager = newManager(tempDir.resolve("workspaces"));
+    RuntimeException ex =
         assertThrows(
-            GitException.class,
-            () -> manager.cloneRepository("file:///this/does/not/exist", tempDir.resolve("clone")));
+            RuntimeException.class,
+            () -> manager.prepareWorkspace("app-1", "file:///this/does/not/exist", null));
     assertNotNull(ex.getCause());
   }
 
@@ -117,5 +105,13 @@ class JGitManagerGitTest {
         new FileRepositoryBuilder().setGitDir(originBare.toFile()).setBare().build()) {
       repo.updateRef(Constants.HEAD).link(Constants.R_HEADS + "main");
     }
+  }
+
+  private static GitWorkspaceManager newManager(Path workspaceRoot) throws Exception {
+    GitWorkspaceManager manager = new GitWorkspaceManager();
+    Field workspaceRootField = GitWorkspaceManager.class.getDeclaredField("workspaceRoot");
+    workspaceRootField.setAccessible(true);
+    workspaceRootField.set(manager, workspaceRoot.toString());
+    return manager;
   }
 }

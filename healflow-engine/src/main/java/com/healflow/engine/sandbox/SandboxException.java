@@ -19,5 +19,9 @@ public final class SandboxException extends RuntimeException {
   public String details() {
     return details;
   }
-}
 
+  @Override
+  public String getMessage() {
+    return super.getMessage() + "\n" + details;
+  }
+}

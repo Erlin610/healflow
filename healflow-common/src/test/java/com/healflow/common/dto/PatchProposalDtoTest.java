@@ -25,13 +25,13 @@ class PatchProposalDtoTest {
     PatchProposalDto proposal =
         PatchProposalDto.builder()
             .appName("order-service")
-            .commitId("abc123")
+            .branch("main")
             .patch("diff --git a/x b/x")
             .agentStatus(AgentStatus.DONE)
             .build();
 
     assertEquals("order-service", proposal.appName());
-    assertEquals("abc123", proposal.commitId());
+    assertEquals("main", proposal.branch());
     assertEquals("diff --git a/x b/x", proposal.patch());
     assertEquals(AgentStatus.DONE, proposal.agentStatus());
   }
@@ -54,7 +54,7 @@ class PatchProposalDtoTest {
 
   @Test
   void json_roundTrip() throws Exception {
-    PatchProposalDto proposal = new PatchProposalDto("order-service", "abc123", "diff --git a/x b/x", AgentStatus.DONE);
+    PatchProposalDto proposal = new PatchProposalDto("order-service", "main", "diff --git a/x b/x", AgentStatus.DONE);
 
     String json = mapper.writeValueAsString(proposal);
     PatchProposalDto parsed = mapper.readValue(json, PatchProposalDto.class);
@@ -62,4 +62,3 @@ class PatchProposalDtoTest {
     assertEquals(proposal, parsed);
   }
 }
-

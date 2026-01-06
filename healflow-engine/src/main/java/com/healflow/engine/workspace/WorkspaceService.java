@@ -10,6 +10,10 @@ import java.nio.file.SimpleFileVisitor;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.util.regex.Pattern;
 
+/**
+ * @deprecated Prefer {@code com.healflow.engine.git.GitWorkspaceManager} for new call sites.
+ */
+@Deprecated(since = "1.0.0-SNAPSHOT", forRemoval = true)
 public final class WorkspaceService {
 
   private static final Pattern SAFE_NAME = Pattern.compile("[a-zA-Z0-9._-]+");

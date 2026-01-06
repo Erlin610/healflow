@@ -7,6 +7,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.healflow.engine.git.GitWorkspaceManager;
 import com.healflow.platform.HealflowPlatformApplication;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -21,6 +22,7 @@ class ReportControllerTest {
 
   @Autowired private MockMvc mockMvc;
   @Autowired private ObjectMapper objectMapper;
+  @Autowired private GitWorkspaceManager gitWorkspaceManager;
 
   @Test
   void statusEndpointWorks() throws Exception {
@@ -47,5 +49,11 @@ class ReportControllerTest {
   void applicationMainStartsInNonWebMode() {
     HealflowPlatformApplication.main(
         new String[] {"--spring.main.web-application-type=none", "--healflow.exception-listener-enabled=false"});
+  }
+
+  @Test
+  void engineServicesAreComponentScanned() {
+    // Ensure healflow-engine beans (e.g., GitWorkspaceManager @Service) are discoverable from platform.
+    org.junit.jupiter.api.Assertions.assertNotNull(gitWorkspaceManager);
   }
 }

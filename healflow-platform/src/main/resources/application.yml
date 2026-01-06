@@ -9,3 +9,5 @@ healflow:
   enabled: true
   exception-listener-enabled: true
   high-severity-token: panic
+  sandbox:
+    image: "ubuntu:latest"

@@ -13,11 +13,12 @@ public class IncidentReporter {
   private final RestClient restClient;
 
   public IncidentReporter(HealFlowProperties properties) {
+    this(properties, RestClient.builder().baseUrl(properties.getServerUrl()).build());
+  }
+
+  IncidentReporter(HealFlowProperties properties, RestClient restClient) {
     this.properties = properties;
-    this.restClient =
-        RestClient.builder()
-            .baseUrl(properties.getServerUrl())
-            .build();
+    this.restClient = restClient;
   }
 
   public void report(Throwable ex) {
@@ -26,9 +27,10 @@ public class IncidentReporter {
     try {
       // 构造 DTO (这里暂时 mock commitId，下一步我们再加 Git 读取)
       IncidentReport report =
-          new IncidentReport(
+              new IncidentReport(
               properties.getAppId(),
-              "mock-commit-hash-123",
+              properties.getGitUrl(),
+              defaultBranch(properties.getGitBranch()),
               ex.getClass().getName(),
               ex.getMessage(),
               getStackTraceAsString(ex),
@@ -47,6 +49,10 @@ public class IncidentReporter {
     } catch (Exception e) {
       log.warn("❌ HealFlow: Failed to report incident: {}", e.getMessage());
     }
+  }
+
+  private static String defaultBranch(String branch) {
+    return (branch == null || branch.isBlank()) ? "main" : branch;
   }
 
   private String getStackTraceAsString(Throwable throwable) {

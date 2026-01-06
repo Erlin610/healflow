@@ -9,7 +9,16 @@
       "Bash(export:*)",
       "Bash(.tools/apache-maven-3.9.6/apache-maven-3.9.6/bin/mvn:*)",
       "Bash(git reset:*)",
-      "Bash(git add:*)"
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git push:*)",
+      "Bash(mvn clean compile:*)",
+      "Bash(java:*)",
+      "Bash(dir:*)",
+      "Bash(codeagent-wrapper:*)",
+      "Bash(Get-Content \"C:\\\\Users\\\\Administrator\\\\AppData\\\\Local\\\\Temp\\\\codeagent-wrapper-29164-task-1.log\" -Tail 50)",
+      "Bash(Remove-Item -Path \".\\\\nul\" -Force)",
+      "Bash(del:*)"
     ]
   }
 }

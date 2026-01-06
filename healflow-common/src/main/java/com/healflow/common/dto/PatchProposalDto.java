@@ -7,13 +7,13 @@ import jakarta.validation.constraints.NotNull;
 
 public record PatchProposalDto(
     @NotBlank String appName,
-    @NotBlank String commitId,
+    @NotBlank String branch,
     @NotBlank String patch,
     @NotNull AgentStatus agentStatus) {
 
   public PatchProposalDto {
     appName = Arguments.requireNonBlank(appName, "appName");
-    commitId = Arguments.requireNonBlank(commitId, "commitId");
+    branch = Arguments.requireNonBlank(branch, "branch");
     patch = Arguments.requireNonBlank(patch, "patch");
     agentStatus = Arguments.requireNonNull(agentStatus, "agentStatus");
   }
@@ -25,7 +25,7 @@ public record PatchProposalDto(
   public static final class Builder {
 
     private String appName;
-    private String commitId;
+    private String branch;
     private String patch;
     private AgentStatus agentStatus;
 
@@ -36,8 +36,8 @@ public record PatchProposalDto(
       return this;
     }
 
-    public Builder commitId(String commitId) {
-      this.commitId = commitId;
+    public Builder branch(String branch) {
+      this.branch = branch;
       return this;
     }
 
@@ -52,8 +52,7 @@ public record PatchProposalDto(
     }
 
     public PatchProposalDto build() {
-      return new PatchProposalDto(appName, commitId, patch, agentStatus);
+      return new PatchProposalDto(appName, branch, patch, agentStatus);
     }
   }
 }
-

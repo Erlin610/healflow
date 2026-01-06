@@ -61,7 +61,13 @@ public final class DockerSandboxManager {
     CommandResult result = run(new ShellCommand(argv, null, DEFAULT_TIMEOUT, Map.of(), List.of()));
     String containerId = result.output().trim();
     if (containerId.isEmpty()) {
-      throw new SandboxException("Docker did not return container ID", result.output());
+      SandboxException failure = new SandboxException("Docker did not return container ID", result.output());
+      try {
+        removeForce(safeName);
+      } catch (RuntimeException cleanupFailure) {
+        failure.addSuppressed(cleanupFailure);
+      }
+      throw failure;
     }
     return containerId;
   }
@@ -89,6 +95,65 @@ public final class DockerSandboxManager {
     run(new ShellCommand(List.of(dockerExecutable, "rm", "-f", safeName), null, DEFAULT_TIMEOUT, Map.of(), List.of()));
   }
 
+  public CommandResult executeInSandbox(
+      String containerName,
+      Path hostWorkspace,
+      String containerWorkspace,
+      String image,
+      List<String> argv) {
+    return executeInSandbox(
+        containerName, hostWorkspace, containerWorkspace, image, Map.of(), argv, null, List.of());
+  }
+
+  public CommandResult executeInSandbox(
+      String containerName,
+      Path hostWorkspace,
+      String containerWorkspace,
+      String image,
+      Map<String, String> environment,
+      List<String> argv,
+      Duration timeout,
+      List<InteractionRule> interactions) {
+    Arguments.requireNonNull(hostWorkspace, "hostWorkspace");
+    Arguments.requireNonBlank(containerWorkspace, "containerWorkspace");
+    Arguments.requireNonBlank(image, "image");
+    Arguments.requireNonNull(environment, "environment");
+    Arguments.requireNonNull(argv, "argv");
+    if (argv.isEmpty()) {
+      throw new IllegalArgumentException("argv must be non-empty");
+    }
+    if (argv.stream().anyMatch(a -> a == null || a.isBlank())) {
+      throw new IllegalArgumentException("argv must be non-empty and contain no blank arguments");
+    }
+    if (timeout != null && timeout.isNegative()) {
+      throw new IllegalArgumentException("timeout must not be negative");
+    }
+    Arguments.requireNonNull(interactions, "interactions");
+
+    boolean containerStarted = false;
+    RuntimeException failure = null;
+    try {
+      startDetached(containerName, hostWorkspace, containerWorkspace, image, environment);
+      containerStarted = true;
+      return exec(containerName, argv, timeout, interactions);
+    } catch (RuntimeException e) {
+      failure = e;
+      throw e;
+    } finally {
+      if (containerStarted) {
+        try {
+          removeForce(containerName);
+        } catch (RuntimeException cleanupFailure) {
+          if (failure != null) {
+            failure.addSuppressed(cleanupFailure);
+          } else {
+            throw cleanupFailure;
+          }
+        }
+      }
+    }
+  }
+
   private CommandResult run(ShellCommand command) {
     CommandResult result;
     try {
@@ -114,4 +179,3 @@ public final class DockerSandboxManager {
     return "command=" + String.join(" ", argv) + System.lineSeparator() + result.output();
   }
 }
-

@@ -50,7 +50,8 @@ class ExceptionListenerTest {
     assertDoesNotThrow(() -> listener.uncaughtException(currentThread, boom));
     assertThat(delegated.get()).isSameAs(boom);
     assertThat(analyzedReport.get()).contains("thread=" + currentThread.getName());
-    assertThat(analyzedReport.get()).contains("commitId=abcdef123456");
+    assertThat(analyzedReport.get()).contains("branch=main");
+    assertThat(analyzedReport.get()).contains("buildTime=2026-01-04T00:00:00Z");
     assertThat(analyzedReport.get()).contains("java.lang.RuntimeException: boom");
 
     listener.destroy();
@@ -93,4 +94,3 @@ class ExceptionListenerTest {
     assertThat(Thread.getDefaultUncaughtExceptionHandler()).isSameAs(newHandler);
   }
 }
-

@@ -5,7 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import org.junit.jupiter.api.Test;
 
-class SimpleHealflowEngineTest {
+class SimpleHealflowEngineSandboxTest {
 
   @Test
   void analyze_returnsHighWhenTokenMatches() {
@@ -34,4 +34,3 @@ class SimpleHealflowEngineTest {
     assertThrows(IllegalArgumentException.class, () -> new SimpleHealflowEngine(" "));
   }
 }
-

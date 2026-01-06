@@ -15,11 +15,11 @@ import java.util.Map;
  */
 public record IncidentReport(
     String appId,
-    String commitId,
+    String repoUrl, // optional
+    String branch,
     String errorType,
     String errorMessage,
     String stackTrace,
     Map<String, String> environment,
     Instant occurredAt
 ) {}
-
