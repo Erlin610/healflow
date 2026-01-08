@@ -1,0 +1,41 @@
+{
+  "permissions": {
+    "allow": [
+      "Skill(codex)",
+      "Bash(codex-wrapper:*)",
+      "Bash(Get-Content \"C:\\\\Users\\\\Administrator\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\E--mine-healflow\\\\tasks\\\\b763bca.output\" -Tail 100)",
+      "Bash(find:*)",
+      "Bash(cat:*)",
+      "Bash(export:*)",
+      "Bash(.tools/apache-maven-3.9.6/apache-maven-3.9.6/bin/mvn:*)",
+      "Bash(git reset:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git push:*)",
+      "Bash(mvn clean compile:*)",
+      "Bash(java:*)",
+      "Bash(dir:*)",
+      "Bash(codeagent-wrapper:*)",
+      "Bash(Get-Content \"C:\\\\Users\\\\Administrator\\\\AppData\\\\Local\\\\Temp\\\\codeagent-wrapper-29164-task-1.log\" -Tail 50)",
+      "Bash(Remove-Item -Path \".\\\\nul\" -Force)",
+      "Bash(del:*)",
+      "Bash(dos2unix:*)",
+      "Bash(.gitattributes <<'EOF'\n# Shell scripts must use LF line endings\n*.sh text eol=lf\nEOF)",
+      "Bash(git rm:*)",
+      "WebSearch",
+      "WebFetch(domain:www.eesel.ai)",
+      "WebFetch(domain:spectrumailab.com)",
+      "WebFetch(domain:claudelog.com)",
+      "WebFetch(domain:docs.anthropic.com)",
+      "WebFetch(domain:www.curiouslychase.com)",
+      "WebFetch(domain:dotclaude.com)",
+      "Bash(Get-Content \"C:\\\\Users\\\\Administrator\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\E--mine-healflow\\\\tasks\\\\b89400e.output\" -Tail 100)",
+      "Bash(mvn clean test jacoco:report:*)",
+      "Bash(docker:*)",
+      "Bash(findstr:*)",
+      "Bash(mvn clean install -DskipTests)",
+      "Bash(Get-Content:*)",
+      "Bash(powershell -Command:*)"
+    ]
+  }
+}

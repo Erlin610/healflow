@@ -1,17 +1,26 @@
 package com.healflow.platform.service;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.healflow.common.dto.AnalysisResult;
+import com.healflow.common.dto.FixProposal;
+import com.healflow.common.dto.FixResult;
 import com.healflow.common.dto.IncidentReport;
 import com.healflow.engine.git.GitWorkspaceManager;
 import com.healflow.engine.sandbox.DockerSandboxManager;
 import com.healflow.engine.sandbox.SandboxException;
 import com.healflow.engine.shell.CommandResult;
 import com.healflow.engine.shell.ShellTimeoutException;
-import java.nio.file.Files;
+import com.healflow.platform.entity.IncidentEntity;
+import com.healflow.platform.entity.IncidentStatus;
+import com.healflow.platform.repository.IncidentRepository;
+import java.io.File;
 import java.time.Instant;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.nio.file.Path;
+import java.util.Optional;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -29,57 +38,40 @@ public class IncidentService {
 
   private final GitWorkspaceManager gitManager;
   private final DockerSandboxManager dockerSandboxManager;
+  private final IncidentRepository incidentRepository;
   private final String sandboxImage;
+  private final String aiAgentImage;
+  private final ObjectMapper objectMapper;
 
   public IncidentService(
       GitWorkspaceManager gitManager,
       DockerSandboxManager dockerSandboxManager,
-      @Value("${healflow.sandbox.image:ubuntu:latest}") String sandboxImage) {
+      IncidentRepository incidentRepository,
+      @Value("${healflow.sandbox.image:ubuntu:latest}") String sandboxImage,
+      @Value("${healflow.ai.image:healflow-agent:v1}") String aiAgentImage) {
     this.gitManager = gitManager;
     this.dockerSandboxManager = dockerSandboxManager;
+    this.incidentRepository = incidentRepository;
     this.sandboxImage = sandboxImage;
+    this.aiAgentImage = aiAgentImage;
+    this.objectMapper = new ObjectMapper();
   }
 
-  @Async // key: async execution, non-blocking Controller response
-  public void processIncident(IncidentReport report) {
-    log.info("Start processing incident for {}", report.appId());
+  public String createIncident(IncidentReport report) {
+    log.info("Creating incident for app: {}", report.appId());
 
-    try {
-      // Phase 2: prepare source code
-      Path sourceCodePath = gitManager.prepareWorkspace(report.appId(), report.repoUrl(), report.branch());
+    String incidentId = "inc-" + System.currentTimeMillis();
+    IncidentEntity incident = new IncidentEntity(incidentId, report.appId(), IncidentStatus.WAITING);
+    incident.setRepoUrl(report.repoUrl());
+    incident.setBranch(report.branch());
+    incident.setErrorType(report.errorType());
+    incident.setErrorMessage(report.errorMessage());
+    incident.setStackTrace(report.stackTrace());
 
-      log.info("Source code ready at: {}", sourceCodePath);
+    incidentRepository.save(incident);
+    log.info("Incident created with ID: {}", incidentId);
 
-      Path scriptPath = sourceCodePath.resolve(MOCK_AGENT_SCRIPT_NAME);
-      if (!Files.isRegularFile(scriptPath)) {
-        log.error("Mock agent script not found at: {}", scriptPath);
-        return;
-      }
-
-      // Phase 4: run mock agent in interactive Docker sandbox
-      String containerName = buildContainerName(report.appId());
-      Map<String, String> environment = report.environment() == null ? Map.of() : report.environment();
-      CommandResult result =
-          dockerSandboxManager.executeInteractiveRunInSandbox(
-              containerName,
-              sourceCodePath,
-              CONTAINER_WORKSPACE,
-              sandboxImage,
-              environment,
-              List.of("bash", CONTAINER_SCRIPT_PATH),
-              MOCK_AGENT_TIMEOUT,
-              List.of());
-      log.info("Mock agent output:\n{}", result.output());
-    } catch (SandboxException e) {
-      Throwable cause = e.getCause();
-      if (cause instanceof ShellTimeoutException timeout) {
-        log.error("Mock agent timed out:\n{}", timeout.outputSoFar(), e);
-        return;
-      }
-      log.error("Mock agent failed:\n{}", e.details(), e);
-    } catch (Exception e) {
-      log.error("Processing failed", e);
-    }
+    return incidentId;
   }
 
   private static String buildContainerName(String appId) {
@@ -110,5 +102,390 @@ public class IncidentService {
       return "app";
     }
     return builder.toString();
+  }
+
+  // ========== Phase 5: Multi-stage AI Analysis ==========
+
+  public AnalysisResult analyzeIncident(String incidentId, IncidentReport report) {
+    IncidentEntity incident = findOrCreateIncident(incidentId, report);
+    transitionOrThrow(incident, IncidentStatus.ANALYZING);
+    incident = incidentRepository.saveAndFlush(incident);
+
+    try {
+      AnalysisResult result = analyzeIncident(report);
+      incident.setSessionId(result.sessionId());
+      incident.setAnalysisResult(result.structuredOutput());
+      incident.setStatus(IncidentStatus.ANALYZED);
+      incidentRepository.save(incident);
+      return result;
+    } catch (RuntimeException e) {
+      failIncident(incident.getId());
+      throw e;
+    }
+  }
+
+  public FixProposal generateFix(String incidentId) {
+    IncidentEntity incident = loadIncidentOrThrow(incidentId);
+    if (incident.getStatus() != IncidentStatus.ANALYZED) {
+      throw new IllegalStateException("Incident is not ANALYZED");
+    }
+    if (incident.getSessionId() == null || incident.getSessionId().isBlank()) {
+      throw new IllegalStateException("Incident has no sessionId");
+    }
+
+    transitionOrThrow(incident, IncidentStatus.FIXING);
+    incident = incidentRepository.saveAndFlush(incident);
+
+    Path workspace = prepareWorkspaceOrThrow(incident);
+    try {
+      FixProposal proposal = generateFix(incident.getSessionId(), workspace);
+      incident.setFixProposal(proposal.structuredOutput());
+      incidentRepository.save(incident);
+      return proposal;
+    } catch (RuntimeException e) {
+      failIncident(incident.getId());
+      throw e;
+    }
+  }
+
+  public FixResult applyFix(String incidentId) {
+    IncidentEntity incident = loadIncidentOrThrow(incidentId);
+    if (incident.getStatus() != IncidentStatus.FIXING) {
+      throw new IllegalStateException("Incident is not FIXING");
+    }
+    if (incident.getSessionId() == null || incident.getSessionId().isBlank()) {
+      throw new IllegalStateException("Incident has no sessionId");
+    }
+
+    Path workspace = prepareWorkspaceOrThrow(incident);
+    try {
+      FixResult result = applyFix(incident.getSessionId(), workspace);
+      incident.setStatus(IncidentStatus.FIXED);
+      incidentRepository.save(incident);
+      return result;
+    } catch (RuntimeException e) {
+      failIncident(incident.getId());
+      throw e;
+    }
+  }
+
+  private IncidentEntity findOrCreateIncident(String incidentId, IncidentReport report) {
+    if (incidentId == null || incidentId.isBlank()) {
+      throw new IllegalArgumentException("incidentId must not be blank");
+    }
+    if (report == null) {
+      throw new IllegalArgumentException("report must not be null");
+    }
+
+    Optional<IncidentEntity> existing = incidentRepository.findById(incidentId);
+    if (existing.isPresent()) {
+      IncidentEntity incident = existing.get();
+      incident.setAppId(report.appId());
+      incident.setRepoUrl(report.repoUrl());
+      incident.setBranch(report.branch());
+      return incident;
+    }
+
+    IncidentEntity created = new IncidentEntity(incidentId, report.appId(), IncidentStatus.WAITING);
+    created.setRepoUrl(report.repoUrl());
+    created.setBranch(report.branch());
+    return created;
+  }
+
+  private IncidentEntity loadIncidentOrThrow(String incidentId) {
+    if (incidentId == null || incidentId.isBlank()) {
+      throw new IllegalArgumentException("incidentId must not be blank");
+    }
+    return incidentRepository
+        .findById(incidentId)
+        .orElseThrow(() -> new IllegalArgumentException("Incident not found: " + incidentId));
+  }
+
+  private Path prepareWorkspaceOrThrow(IncidentEntity incident) {
+    if (incident.getAppId() == null || incident.getAppId().isBlank()) {
+      throw new IllegalStateException("Incident has no appId");
+    }
+    if (incident.getRepoUrl() == null || incident.getRepoUrl().isBlank()) {
+      throw new IllegalStateException("Incident has no repoUrl");
+    }
+    if (incident.getBranch() == null || incident.getBranch().isBlank()) {
+      throw new IllegalStateException("Incident has no branch");
+    }
+    return gitManager.prepareWorkspace(incident.getAppId(), incident.getRepoUrl(), incident.getBranch());
+  }
+
+  private void transitionOrThrow(IncidentEntity incident, IncidentStatus target) {
+    IncidentStatus current = incident.getStatus();
+    if (current == null) {
+      incident.setStatus(IncidentStatus.WAITING);
+      current = IncidentStatus.WAITING;
+    }
+    if (!current.canTransitionTo(target)) {
+      throw new IllegalStateException("Invalid transition: " + current + " -> " + target);
+    }
+    incident.setStatus(target);
+  }
+
+  private void failIncident(String incidentId) {
+    try {
+      IncidentEntity incident = loadIncidentOrThrow(incidentId);
+      if (incident.getStatus() != IncidentStatus.FAILED) {
+        incident.setStatus(IncidentStatus.FAILED);
+        incidentRepository.save(incident);
+      }
+    } catch (Exception ignored) {
+      // Best-effort only.
+    }
+  }
+
+  public List<Map<String, Object>> listIncidents(String statusFilter) {
+    List<IncidentEntity> incidents;
+    if (statusFilter != null && !statusFilter.isBlank()) {
+      try {
+        IncidentStatus status = IncidentStatus.valueOf(statusFilter.toUpperCase());
+        incidents = incidentRepository.findByStatus(status);
+      } catch (IllegalArgumentException e) {
+        incidents = incidentRepository.findAll();
+      }
+    } else {
+      incidents = incidentRepository.findAll();
+    }
+
+    return incidents.stream()
+        .map(this::toMap)
+        .toList();
+  }
+
+  public Map<String, Object> getIncidentDetails(String incidentId) {
+    IncidentEntity incident = loadIncidentOrThrow(incidentId);
+    return toMap(incident);
+  }
+
+  private Map<String, Object> toMap(IncidentEntity incident) {
+    Map<String, Object> map = new java.util.HashMap<>();
+    map.put("id", incident.getId());
+    map.put("appId", incident.getAppId());
+    map.put("repoUrl", incident.getRepoUrl());
+    map.put("branch", incident.getBranch());
+    map.put("status", incident.getStatus().name());
+    map.put("sessionId", incident.getSessionId());
+    map.put("errorType", incident.getErrorType());
+    map.put("errorMessage", incident.getErrorMessage());
+    map.put("stackTrace", incident.getStackTrace());
+    map.put("analysisResult", incident.getAnalysisResult());
+    map.put("fixProposal", incident.getFixProposal());
+    map.put("createdAt", incident.getCreatedAt());
+    map.put("updatedAt", incident.getUpdatedAt());
+    return map;
+  }
+
+  public AnalysisResult analyzeIncident(IncidentReport report) {
+    log.info("Phase 5 Stage 1: Analyzing incident for {}", report.appId());
+
+    try {
+      Path sourceCodePath = gitManager.prepareWorkspace(report.appId(), report.repoUrl(), report.branch());
+
+      String prompt = String.format(
+          "请用中文分析这个 Java 应用错误：\n" +
+          "错误类型: %s\n" +
+          "错误信息: %s\n" +
+          "堆栈跟踪:\n%s\n\n" +
+          "请提供详细的分析，但不要生成修复方案。请用中文回复。",
+          report.errorType(),
+          report.errorMessage(),
+          truncate(report.stackTrace(), 1000)
+      );
+
+      String jsonSchema = "{\"type\":\"object\",\"properties\":{\"bug_type\":{\"type\":\"string\"},\"severity\":{\"type\":\"string\",\"enum\":[\"critical\",\"high\",\"medium\",\"low\"]},\"root_cause\":{\"type\":\"string\"},\"affected_files\":{\"type\":\"array\",\"items\":{\"type\":\"string\"}},\"analysis\":{\"type\":\"string\"},\"confidence\":{\"type\":\"number\",\"minimum\":0,\"maximum\":1}},\"required\":[\"bug_type\",\"severity\",\"root_cause\",\"analysis\",\"confidence\"]}";
+
+      Path schemaFile = sourceCodePath.resolve("analysis-schema.json");
+      Path scriptFile = sourceCodePath.resolve("analyze-incident.sh");
+
+      try {
+        java.nio.file.Files.writeString(schemaFile, jsonSchema);
+        String script = "#!/bin/sh\n" +
+            "SCHEMA=$(cat /src/analysis-schema.json)\n" +
+            "claude -p '" + prompt.replace("'", "'\\''") + "' " +
+            "--allowedTools Read,Grep,Glob " +
+            "--output-format json " +
+            "--json-schema \"$SCHEMA\"\n";
+        java.nio.file.Files.writeString(scriptFile, script);
+
+        String containerName = buildContainerName(report.appId());
+        log.info("Executing Claude analysis in container: {}", containerName);
+
+        CommandResult result = dockerSandboxManager.executeInteractiveRunInSandbox(
+            containerName,
+            sourceCodePath,
+            CONTAINER_WORKSPACE,
+            aiAgentImage,
+            Map.of(),
+            List.of("sh", "/src/analyze-incident.sh"),
+            Duration.ofMinutes(30),
+            List.of()
+        );
+
+        String rawOutput = result.output();
+        log.info("Raw result.output() (first 500 chars): {}", truncate(rawOutput, 500));
+        JsonNode response = objectMapper.readTree(rawOutput);
+        String sessionId = response.path("session_id").asText();
+        String structuredOutput = response.path("structured_output").toString();
+        String fullText = response.path("result").asText();
+
+        log.info("Analysis complete. Session ID: {}", sessionId);
+        return new AnalysisResult(sessionId, structuredOutput, fullText);
+
+      } finally {
+        java.nio.file.Files.deleteIfExists(schemaFile);
+        java.nio.file.Files.deleteIfExists(scriptFile);
+      }
+
+    } catch (Exception e) {
+      log.error("Analysis failed", e);
+      throw new RuntimeException("Analysis failed", e);
+    }
+  }
+
+  public FixProposal generateFix(String sessionId, Path sourceCodePath) {
+    log.info("Phase 5 Stage 2: Generating fix for session {}", sessionId);
+
+    try {
+      String apiKey = getApiKeyFromHost();
+      if (apiKey == null || apiKey.isBlank()) {
+        throw new RuntimeException("No API Key found");
+      }
+
+      String prompt = "Based on the analysis, generate a detailed fix proposal. " +
+                     "Show the code changes but DO NOT apply them yet.";
+
+      String jsonSchema = "{\"type\":\"object\",\"properties\":{\"fix_description\":{\"type\":\"string\"},\"files_to_modify\":{\"type\":\"array\",\"items\":{\"type\":\"string\"}},\"code_changes\":{\"type\":\"string\"},\"test_strategy\":{\"type\":\"string\"},\"risk_level\":{\"type\":\"string\",\"enum\":[\"low\",\"medium\",\"high\"]}},\"required\":[\"fix_description\",\"files_to_modify\",\"code_changes\"]}";
+
+      List<String> command = List.of(
+          "sh", "-c",
+          "printf '%s' '" + jsonSchema.replace("'", "'\\''") + "' > /tmp/schema-fix.json && " +
+          "claude -p \"" + prompt.replace("\"", "\\\"") + "\" " +
+          "--resume " + sessionId + " " +
+          "--allowedTools Read " +
+          "--output-format json " +
+          "--json-schema \"$(cat /tmp/schema-fix.json)\""
+      );
+
+      String containerName = buildContainerName("fix-gen");
+      CommandResult result = dockerSandboxManager.executeInteractiveRunInSandbox(
+          containerName,
+          sourceCodePath,
+          CONTAINER_WORKSPACE,
+          aiAgentImage,
+          Map.of("ANTHROPIC_API_KEY", apiKey),
+          command,
+          Duration.ofMinutes(30),
+          List.of()
+      );
+
+      JsonNode response = objectMapper.readTree(result.output());
+      String structuredOutput = response.path("structured_output").toString();
+      String fullText = response.path("result").asText();
+
+      log.info("Fix proposal generated");
+      return new FixProposal(sessionId, structuredOutput, fullText);
+
+    } catch (Exception e) {
+      log.error("Fix generation failed", e);
+      throw new RuntimeException("Fix generation failed", e);
+    }
+  }
+
+  public FixResult applyFix(String sessionId, Path sourceCodePath) {
+    log.info("Phase 5 Stage 3: Applying fix for session {}", sessionId);
+
+    try {
+      String apiKey = getApiKeyFromHost();
+      if (apiKey == null || apiKey.isBlank()) {
+        throw new RuntimeException("No API Key found");
+      }
+
+      String prompt = "Apply the fix we discussed. " +
+                     "Make the code changes and run tests to verify.";
+
+      List<String> command = List.of(
+          "claude", "-p", prompt,
+          "--resume", sessionId,
+          "--allowedTools", "Read,Edit,Write,Bash(mvn test:*)",
+          "--output-format", "json"
+      );
+
+      String containerName = buildContainerName("fix-apply");
+      CommandResult result = dockerSandboxManager.executeInteractiveRunInSandbox(
+          containerName,
+          sourceCodePath,
+          CONTAINER_WORKSPACE,
+          aiAgentImage,
+          Map.of("ANTHROPIC_API_KEY", apiKey),
+          command,
+          Duration.ofMinutes(30),
+          List.of()
+      );
+
+      JsonNode response = objectMapper.readTree(result.output());
+      String resultText = response.path("result").asText();
+      String usage = response.path("usage").toString();
+
+      log.info("Fix applied successfully");
+      return new FixResult(resultText, usage);
+
+    } catch (Exception e) {
+      log.error("Fix application failed", e);
+      throw new RuntimeException("Fix application failed", e);
+    }
+  }
+
+  private String getApiKeyFromHost() {
+    String envApiKey = System.getenv("ANTHROPIC_API_KEY");
+    if (envApiKey != null && !envApiKey.isBlank()) {
+      return envApiKey;
+    }
+
+    String envAuthToken = System.getenv("ANTHROPIC_AUTH_TOKEN");
+    if (envAuthToken != null && !envAuthToken.isBlank()) {
+      return envAuthToken;
+    }
+
+    try {
+      File settingsFile = new File(System.getProperty("user.home"), ".claude/settings.json");
+      if (!settingsFile.exists()) {
+        return null;
+      }
+
+      JsonNode root = objectMapper.readTree(settingsFile);
+      for (String jsonPointer :
+          new String[] {
+            "/env/ANTHROPIC_AUTH_TOKEN",
+            "/env/ANTHROPIC_API_KEY",
+            "/env/anthropicApiKey",
+            "/env/anthropic_api_key",
+            "/ANTHROPIC_AUTH_TOKEN",
+            "/ANTHROPIC_API_KEY",
+            "/anthropicApiKey",
+            "/anthropic_api_key",
+            "/apiKey"
+          }) {
+        JsonNode candidate = root.at(jsonPointer);
+        if (candidate.isTextual()) {
+          String value = candidate.asText();
+          if (value != null && !value.isBlank()) {
+            return value;
+          }
+        }
+      }
+    } catch (Exception e) {
+      log.error("Failed to read ~/.claude/settings.json", e);
+    }
+
+    return null;
+  }
+
+  private String truncate(String text, int maxLength) {
+    if (text == null) return "";
+    return text.length() > maxLength ? text.substring(0, maxLength) + "..." : text;
   }
 }

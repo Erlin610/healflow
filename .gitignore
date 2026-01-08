@@ -46,3 +46,5 @@ replay_pid*
 # Local sandbox artifacts
 SpawnTest*.java
 tmp-delete-me.txt
+tmp-delete-test-root.txt
+nul

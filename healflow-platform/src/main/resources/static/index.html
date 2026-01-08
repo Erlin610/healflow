@@ -1,0 +1,305 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HealFlow - Incident 管理</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f5f5f5; }
+        .container { max-width: 1200px; margin: 0 auto; padding: 20px; }
+        h1 { color: #333; margin-bottom: 20px; }
+        .filters { background: white; padding: 15px; border-radius: 8px; margin-bottom: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        .filters select { padding: 8px 12px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px; }
+        .filters button { padding: 8px 16px; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; margin-left: 10px; }
+        .filters button:hover { background: #0056b3; }
+        .incident-list { background: white; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        .incident-item { padding: 15px; border-bottom: 1px solid #eee; cursor: pointer; transition: background 0.2s; }
+        .incident-item:hover { background: #f8f9fa; }
+        .incident-item:last-child { border-bottom: none; }
+        .incident-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+        .incident-id { font-weight: 600; color: #333; }
+        .status-badge { padding: 4px 12px; border-radius: 12px; font-size: 12px; font-weight: 500; }
+        .status-WAITING { background: #ffc107; color: #000; }
+        .status-ANALYZING { background: #17a2b8; color: white; }
+        .status-ANALYZED { background: #28a745; color: white; }
+        .status-FIXING { background: #fd7e14; color: white; }
+        .status-FIXED { background: #20c997; color: white; }
+        .status-FAILED { background: #dc3545; color: white; }
+        .incident-meta { font-size: 14px; color: #666; }
+        .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1000; }
+        .modal-content { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background: white; border-radius: 8px; padding: 30px; max-width: 800px; width: 90%; max-height: 90vh; overflow-y: auto; }
+        .modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+        .modal-header h2 { color: #333; }
+        .close-btn { font-size: 28px; cursor: pointer; color: #999; }
+        .close-btn:hover { color: #333; }
+        .detail-row { margin-bottom: 15px; }
+        .detail-label { font-weight: 600; color: #666; margin-bottom: 5px; }
+        .detail-value { color: #333; word-break: break-all; }
+        .actions { margin-top: 20px; display: flex; gap: 10px; }
+        .btn { padding: 10px 20px; border: none; border-radius: 4px; cursor: pointer; font-size: 14px; font-weight: 500; }
+        .btn-primary { background: #007bff; color: white; }
+        .btn-primary:hover { background: #0056b3; }
+        .btn-success { background: #28a745; color: white; }
+        .btn-success:hover { background: #218838; }
+        .btn-warning { background: #ffc107; color: #000; }
+        .btn-warning:hover { background: #e0a800; }
+        .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+        .loading { text-align: center; padding: 40px; color: #666; }
+        .empty { text-align: center; padding: 40px; color: #999; }
+        pre { background: #f8f9fa; padding: 10px; border-radius: 4px; overflow-x: auto; font-size: 12px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🏥 HealFlow - Incident 管理</h1>
+
+        <div class="filters">
+            <label>状态筛选：</label>
+            <select id="statusFilter">
+                <option value="">全部</option>
+                <option value="WAITING">WAITING</option>
+                <option value="ANALYZING">ANALYZING</option>
+                <option value="ANALYZED">ANALYZED</option>
+                <option value="FIXING">FIXING</option>
+                <option value="FIXED">FIXED</option>
+                <option value="FAILED">FAILED</option>
+            </select>
+            <button onclick="loadIncidents()">刷新</button>
+        </div>
+
+        <div class="incident-list" id="incidentList">
+            <div class="loading">加载中...</div>
+        </div>
+    </div>
+
+    <div class="modal" id="detailModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Incident 详情</h2>
+                <span class="close-btn" onclick="closeModal()">&times;</span>
+            </div>
+            <div id="detailContent"></div>
+        </div>
+    </div>
+
+    <script>
+        let currentIncident = null;
+
+        async function loadIncidents() {
+            const status = document.getElementById('statusFilter').value;
+            const url = status ? `/api/v1/incidents?status=${status}` : '/api/v1/incidents';
+
+            try {
+                const response = await fetch(url);
+                const incidents = await response.json();
+                renderIncidents(incidents);
+            } catch (error) {
+                document.getElementById('incidentList').innerHTML = '<div class="empty">加载失败</div>';
+            }
+        }
+
+        function renderIncidents(incidents) {
+            const container = document.getElementById('incidentList');
+
+            if (incidents.length === 0) {
+                container.innerHTML = '<div class="empty">暂无 Incident</div>';
+                return;
+            }
+
+            container.innerHTML = incidents.map(inc => `
+                <div class="incident-item" onclick="showDetail('${inc.id}')">
+                    <div class="incident-header">
+                        <span class="incident-id">${inc.id}</span>
+                        <span class="status-badge status-${inc.status}">${inc.status}</span>
+                    </div>
+                    <div class="incident-meta">
+                        <strong>App:</strong> ${inc.appId} |
+                        <strong>创建时间:</strong> ${new Date(inc.createdAt).toLocaleString('zh-CN')}
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        async function showDetail(incidentId) {
+            try {
+                const response = await fetch(`/api/v1/incidents/${incidentId}`);
+                currentIncident = await response.json();
+                renderDetail(currentIncident);
+                document.getElementById('detailModal').style.display = 'block';
+            } catch (error) {
+                alert('加载详情失败');
+            }
+        }
+
+        function renderDetail(inc) {
+            const actions = getAvailableActions(inc.status);
+
+            document.getElementById('detailContent').innerHTML = `
+                <div class="detail-row">
+                    <div class="detail-label">Incident ID</div>
+                    <div class="detail-value">${inc.id}</div>
+                </div>
+                <div class="detail-row">
+                    <div class="detail-label">应用 ID</div>
+                    <div class="detail-value">${inc.appId}</div>
+                </div>
+                <div class="detail-row">
+                    <div class="detail-label">状态</div>
+                    <div class="detail-value"><span class="status-badge status-${inc.status}">${inc.status}</span></div>
+                </div>
+                <div class="detail-row">
+                    <div class="detail-label">仓库 URL</div>
+                    <div class="detail-value">${inc.repoUrl || '-'}</div>
+                </div>
+                <div class="detail-row">
+                    <div class="detail-label">分支</div>
+                    <div class="detail-value">${inc.branch || '-'}</div>
+                </div>
+                <div class="detail-row">
+                    <div class="detail-label">Session ID</div>
+                    <div class="detail-value">${inc.sessionId || '-'}</div>
+                </div>
+                ${inc.errorType || inc.errorMessage || inc.stackTrace ? `
+                <div class="detail-row">
+                    <div class="detail-label">错误类型</div>
+                    <div class="detail-value">${inc.errorType || '-'}</div>
+                </div>
+                <div class="detail-row">
+                    <div class="detail-label">错误信息</div>
+                    <div class="detail-value">${inc.errorMessage || '-'}</div>
+                </div>
+                <div class="detail-row">
+                    <div class="detail-label">堆栈跟踪</div>
+                    <div class="detail-value"><pre style="max-height: 300px; overflow-y: auto; font-size: 12px;">${inc.stackTrace || '-'}</pre></div>
+                </div>
+                ` : ''}
+                ${inc.analysisResult ? `
+                <div class="detail-row">
+                    <div class="detail-label">分析结果</div>
+                    <div class="detail-value"><pre>${inc.analysisResult}</pre></div>
+                </div>
+                ` : ''}
+                ${inc.fixProposal ? `
+                <div class="detail-row">
+                    <div class="detail-label">修复方案</div>
+                    <div class="detail-value"><pre>${inc.fixProposal}</pre></div>
+                </div>
+                ` : ''}
+                <div class="detail-row">
+                    <div class="detail-label">创建时间</div>
+                    <div class="detail-value">${new Date(inc.createdAt).toLocaleString('zh-CN')}</div>
+                </div>
+                <div class="detail-row">
+                    <div class="detail-label">更新时间</div>
+                    <div class="detail-value">${new Date(inc.updatedAt).toLocaleString('zh-CN')}</div>
+                </div>
+                <div class="actions">
+                    ${actions}
+                </div>
+            `;
+        }
+
+        function getAvailableActions(status) {
+            switch(status) {
+                case 'WAITING':
+                    return '<button class="btn btn-primary" onclick="analyzeIncident()">🔍 开始分析</button>';
+                case 'ANALYZED':
+                    return '<button class="btn btn-warning" onclick="generateFix()">🔧 生成修复方案</button>';
+                case 'FIXING':
+                    return '<button class="btn btn-success" onclick="applyFix()">✅ 应用修复</button>';
+                case 'FIXED':
+                    return '<span style="color: #28a745;">✅ 已修复完成</span>';
+                case 'FAILED':
+                    return '<span style="color: #dc3545;">❌ 处理失败</span>';
+                default:
+                    return '';
+            }
+        }
+
+        async function analyzeIncident() {
+            if (!currentIncident) return;
+
+            if (!confirm('确定要开始分析吗？这可能需要几分钟时间。')) return;
+
+            try {
+                const response = await fetch(`/api/v1/incidents/${currentIncident.id}/analyze`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        appId: currentIncident.appId,
+                        repoUrl: currentIncident.repoUrl,
+                        branch: currentIncident.branch,
+                        errorType: currentIncident.errorType || 'Unknown',
+                        errorMessage: currentIncident.errorMessage || 'No error message',
+                        stackTrace: currentIncident.stackTrace || ''
+                    })
+                });
+
+                if (response.ok) {
+                    alert('分析已开始，请稍后刷新查看结果');
+                    closeModal();
+                    loadIncidents();
+                } else {
+                    alert('分析失败');
+                }
+            } catch (error) {
+                alert('请求失败: ' + error.message);
+            }
+        }
+
+        async function generateFix() {
+            if (!currentIncident) return;
+
+            if (!confirm('确定要生成修复方案吗？')) return;
+
+            try {
+                const response = await fetch(`/api/v1/incidents/${currentIncident.id}/generate-fix`, {
+                    method: 'POST'
+                });
+
+                if (response.ok) {
+                    alert('修复方案生成已开始，请稍后刷新查看结果');
+                    closeModal();
+                    loadIncidents();
+                } else {
+                    alert('生成失败');
+                }
+            } catch (error) {
+                alert('请求失败: ' + error.message);
+            }
+        }
+
+        async function applyFix() {
+            if (!currentIncident) return;
+
+            if (!confirm('确定要应用修复吗？这将修改代码并运行测试。')) return;
+
+            try {
+                const response = await fetch(`/api/v1/incidents/${currentIncident.id}/apply-fix`, {
+                    method: 'POST'
+                });
+
+                if (response.ok) {
+                    alert('修复应用已开始，请稍后刷新查看结果');
+                    closeModal();
+                    loadIncidents();
+                } else {
+                    alert('应用失败');
+                }
+            } catch (error) {
+                alert('请求失败: ' + error.message);
+            }
+        }
+
+        function closeModal() {
+            document.getElementById('detailModal').style.display = 'none';
+            currentIncident = null;
+        }
+
+        document.getElementById('statusFilter').addEventListener('change', loadIncidents);
+
+        loadIncidents();
+    </script>
+</body>
+</html>
