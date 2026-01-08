@@ -290,13 +290,20 @@ public class IncidentService {
           "错误类型: %s\n" +
           "错误信息: %s\n" +
           "堆栈跟踪:\n%s\n\n" +
-          "请提供详细的分析，但不要生成修复方案。请用中文回复。",
+          "请提供详细的分析，但不要生成修复方案。\n" +
+          "如果需要用户确认某些信息才能进行修复，请在 questions 字段中提出问题。\n" +
+          "问题格式参考 Claude Code 的 AskUserQuestion 工具：\n" +
+          "- question: 问题描述\n" +
+          "- header: 简短标签（最多12字符）\n" +
+          "- options: 2-4个选项，每个包含 label 和 description\n" +
+          "- multiSelect: 是否允许多选（true/false）\n" +
+          "请用中文回复。",
           report.errorType(),
           report.errorMessage(),
           truncate(report.stackTrace(), 1000)
       );
 
-      String jsonSchema = "{\"type\":\"object\",\"properties\":{\"bug_type\":{\"type\":\"string\"},\"severity\":{\"type\":\"string\",\"enum\":[\"critical\",\"high\",\"medium\",\"low\"]},\"root_cause\":{\"type\":\"string\"},\"affected_files\":{\"type\":\"array\",\"items\":{\"type\":\"string\"}},\"analysis\":{\"type\":\"string\"},\"confidence\":{\"type\":\"number\",\"minimum\":0,\"maximum\":1}},\"required\":[\"bug_type\",\"severity\",\"root_cause\",\"analysis\",\"confidence\"]}";
+      String jsonSchema = "{\"type\":\"object\",\"properties\":{\"bug_type\":{\"type\":\"string\"},\"severity\":{\"type\":\"string\",\"enum\":[\"critical\",\"high\",\"medium\",\"low\"]},\"root_cause\":{\"type\":\"string\"},\"affected_files\":{\"type\":\"array\",\"items\":{\"type\":\"string\"}},\"analysis\":{\"type\":\"string\"},\"confidence\":{\"type\":\"number\",\"minimum\":0,\"maximum\":1},\"questions\":{\"type\":\"array\",\"items\":{\"type\":\"object\",\"properties\":{\"question\":{\"type\":\"string\"},\"header\":{\"type\":\"string\"},\"multiSelect\":{\"type\":\"boolean\"},\"options\":{\"type\":\"array\",\"items\":{\"type\":\"object\",\"properties\":{\"label\":{\"type\":\"string\"},\"description\":{\"type\":\"string\"}},\"required\":[\"label\",\"description\"]}}},\"required\":[\"question\",\"header\",\"options\",\"multiSelect\"]}}},\"required\":[\"bug_type\",\"severity\",\"root_cause\",\"analysis\",\"confidence\"]}";
 
       Path schemaFile = sourceCodePath.resolve("analysis-schema.json");
       Path scriptFile = sourceCodePath.resolve("analyze-incident.sh");
@@ -487,5 +494,79 @@ public class IncidentService {
   private String truncate(String text, int maxLength) {
     if (text == null) return "";
     return text.length() > maxLength ? text.substring(0, maxLength) + "..." : text;
+  }
+
+  @Async
+  public void startFixWithAnswers(String incidentId, Object answersObj) {
+    log.info("Starting fix with user answers for incident: {}", incidentId);
+
+    IncidentEntity incident = incidentRepository.findById(incidentId)
+        .orElseThrow(() -> new IllegalArgumentException("Incident not found: " + incidentId));
+
+    if (incident.getStatus() != IncidentStatus.ANALYZED) {
+      throw new IllegalStateException("Incident must be in ANALYZED status");
+    }
+
+    incident.setStatus(IncidentStatus.FIXING);
+    incidentRepository.save(incident);
+
+    try {
+      Path sourceCodePath = gitManager.prepareWorkspace(
+          incident.getAppId(), incident.getRepoUrl(), incident.getBranch());
+
+      String prompt = String.format(
+          "请根据之前的分析结果修复这个错误。\n" +
+          "Session ID: %s\n" +
+          "用户确认的信息: %s\n\n" +
+          "请生成修复代码并应用。请用中文回复。",
+          incident.getSessionId(),
+          answersObj != null ? answersObj.toString() : "无"
+      );
+
+      Path scriptFile = sourceCodePath.resolve("fix-incident.sh");
+      String script = "#!/bin/sh\n" +
+          "claude --resume " + incident.getSessionId() + " -p '" +
+          prompt.replace("'", "'\\''") + "'\n";
+      java.nio.file.Files.writeString(scriptFile, script);
+
+      String containerName = buildContainerName(incident.getAppId());
+      CommandResult result = dockerSandboxManager.executeInteractiveRunInSandbox(
+          containerName,
+          sourceCodePath,
+          CONTAINER_WORKSPACE,
+          aiAgentImage,
+          Map.of(),
+          List.of("sh", "/src/fix-incident.sh"),
+          Duration.ofMinutes(30),
+          List.of()
+      );
+
+      java.nio.file.Files.deleteIfExists(scriptFile);
+
+      incident.setStatus(IncidentStatus.AI_FIXED);
+      incident.setFixProposal("AI修复完成\n\n" + result.output());
+      incidentRepository.save(incident);
+
+      log.info("Fix completed for incident: {}", incidentId);
+
+    } catch (Exception e) {
+      log.error("Fix failed for incident: {}", incidentId, e);
+      incident.setStatus(IncidentStatus.FAILED);
+      incidentRepository.save(incident);
+    }
+  }
+
+  public void markNoActionNeeded(String incidentId) {
+    log.info("Marking incident as no action needed: {}", incidentId);
+
+    IncidentEntity incident = incidentRepository.findById(incidentId)
+        .orElseThrow(() -> new IllegalArgumentException("Incident not found: " + incidentId));
+
+    if (incident.getStatus() != IncidentStatus.ANALYZED) {
+      throw new IllegalStateException("Incident must be in ANALYZED status");
+    }
+
+    incident.setStatus(IncidentStatus.NO_ACTION_NEEDED);
+    incidentRepository.save(incident);
   }
 }

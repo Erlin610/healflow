@@ -26,6 +26,8 @@
         .status-FIXING { background: #fd7e14; color: white; }
         .status-FIXED { background: #20c997; color: white; }
         .status-FAILED { background: #dc3545; color: white; }
+        .status-NO_ACTION_NEEDED { background: #6c757d; color: white; }
+        .status-AI_FIXED { background: #17a2b8; color: white; }
         .incident-meta { font-size: 14px; color: #666; }
         .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1000; }
         .modal-content { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background: white; border-radius: 8px; padding: 30px; max-width: 800px; width: 90%; max-height: 90vh; overflow-y: auto; }
@@ -48,6 +50,17 @@
         .loading { text-align: center; padding: 40px; color: #666; }
         .empty { text-align: center; padding: 40px; color: #999; }
         pre { background: #f8f9fa; padding: 10px; border-radius: 4px; overflow-x: auto; font-size: 12px; }
+        .question-section { margin: 20px 0; padding: 15px; background: #f8f9fa; border-radius: 4px; }
+        .question-header { font-weight: 600; color: #333; margin-bottom: 10px; }
+        .question-options { margin-top: 10px; }
+        .option-item { margin: 8px 0; padding: 10px; background: white; border: 2px solid #ddd; border-radius: 4px; cursor: pointer; }
+        .option-item:hover { border-color: #007bff; }
+        .option-item.selected { border-color: #007bff; background: #e7f3ff; }
+        .option-label { font-weight: 500; color: #333; }
+        .option-description { font-size: 13px; color: #666; margin-top: 4px; }
+        .analysis-field { margin-bottom: 15px; }
+        .analysis-label { font-weight: 600; color: #666; margin-bottom: 5px; }
+        .analysis-value { color: #333; }
     </style>
 </head>
 <body>
@@ -62,8 +75,10 @@
                 <option value="ANALYZING">ANALYZING</option>
                 <option value="ANALYZED">ANALYZED</option>
                 <option value="FIXING">FIXING</option>
+                <option value="AI_FIXED">AI_FIXED</option>
                 <option value="FIXED">FIXED</option>
                 <option value="FAILED">FAILED</option>
+                <option value="NO_ACTION_NEEDED">NO_ACTION_NEEDED</option>
             </select>
             <button onclick="loadIncidents()">刷新</button>
         </div>
@@ -85,6 +100,7 @@
 
     <script>
         let currentIncident = null;
+        let userAnswers = {};
 
         async function loadIncidents() {
             const status = document.getElementById('statusFilter').value;
@@ -133,7 +149,75 @@
         }
 
         function renderDetail(inc) {
+            userAnswers = {};
             const actions = getAvailableActions(inc.status);
+
+            let analysisHtml = '';
+            let questionsHtml = '';
+
+            if (inc.analysisResult) {
+                try {
+                    const analysis = JSON.parse(inc.analysisResult);
+                    analysisHtml = `
+                        <div class="detail-row">
+                            <div class="detail-label">AI 分析结果</div>
+                            <div class="detail-value">
+                                <div class="analysis-field">
+                                    <div class="analysis-label">错误类型</div>
+                                    <div class="analysis-value">${analysis.bug_type || '-'}</div>
+                                </div>
+                                <div class="analysis-field">
+                                    <div class="analysis-label">严重程度</div>
+                                    <div class="analysis-value">${analysis.severity || '-'}</div>
+                                </div>
+                                <div class="analysis-field">
+                                    <div class="analysis-label">根本原因</div>
+                                    <div class="analysis-value">${analysis.root_cause || '-'}</div>
+                                </div>
+                                <div class="analysis-field">
+                                    <div class="analysis-label">影响文件</div>
+                                    <div class="analysis-value">${(analysis.affected_files || []).join(', ') || '-'}</div>
+                                </div>
+                                <div class="analysis-field">
+                                    <div class="analysis-label">详细分析</div>
+                                    <div class="analysis-value">${analysis.analysis || '-'}</div>
+                                </div>
+                                <div class="analysis-field">
+                                    <div class="analysis-label">置信度</div>
+                                    <div class="analysis-value">${(analysis.confidence * 100).toFixed(0)}%</div>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+
+                    if (analysis.questions && analysis.questions.length > 0) {
+                        questionsHtml = '<div class="detail-row"><div class="detail-label">需要确认的问题</div><div class="detail-value">';
+                        analysis.questions.forEach((q, idx) => {
+                            questionsHtml += `
+                                <div class="question-section">
+                                    <div class="question-header">${q.header}: ${q.question}</div>
+                                    <div class="question-options">
+                                        ${q.options.map((opt, optIdx) => `
+                                            <div class="option-item" onclick="selectOption(${idx}, '${opt.label}', ${q.multiSelect})">
+                                                <div class="option-label">${q.multiSelect ? '☐' : '○'} ${opt.label}</div>
+                                                <div class="option-description">${opt.description}</div>
+                                            </div>
+                                        `).join('')}
+                                    </div>
+                                </div>
+                            `;
+                        });
+                        questionsHtml += '</div></div>';
+                    }
+                } catch (e) {
+                    analysisHtml = `
+                        <div class="detail-row">
+                            <div class="detail-label">分析结果</div>
+                            <div class="detail-value"><pre>${inc.analysisResult}</pre></div>
+                        </div>
+                    `;
+                }
+            }
 
             document.getElementById('detailContent').innerHTML = `
                 <div class="detail-row">
@@ -174,12 +258,8 @@
                     <div class="detail-value"><pre style="max-height: 300px; overflow-y: auto; font-size: 12px;">${inc.stackTrace || '-'}</pre></div>
                 </div>
                 ` : ''}
-                ${inc.analysisResult ? `
-                <div class="detail-row">
-                    <div class="detail-label">分析结果</div>
-                    <div class="detail-value"><pre>${inc.analysisResult}</pre></div>
-                </div>
-                ` : ''}
+                ${analysisHtml}
+                ${questionsHtml}
                 ${inc.fixProposal ? `
                 <div class="detail-row">
                     <div class="detail-label">修复方案</div>
@@ -200,18 +280,61 @@
             `;
         }
 
+        function selectOption(questionIdx, label, multiSelect) {
+            if (!userAnswers[questionIdx]) {
+                userAnswers[questionIdx] = [];
+            }
+
+            if (multiSelect) {
+                const idx = userAnswers[questionIdx].indexOf(label);
+                if (idx > -1) {
+                    userAnswers[questionIdx].splice(idx, 1);
+                } else {
+                    userAnswers[questionIdx].push(label);
+                }
+            } else {
+                userAnswers[questionIdx] = [label];
+            }
+
+            // Update UI
+            const questionSection = document.querySelectorAll('.question-section')[questionIdx];
+            const options = questionSection.querySelectorAll('.option-item');
+            options.forEach((opt, idx) => {
+                const optLabel = opt.querySelector('.option-label').textContent.substring(2);
+                if (userAnswers[questionIdx].includes(optLabel)) {
+                    opt.classList.add('selected');
+                    if (multiSelect) {
+                        opt.querySelector('.option-label').textContent = '☑ ' + optLabel;
+                    } else {
+                        opt.querySelector('.option-label').textContent = '● ' + optLabel;
+                    }
+                } else {
+                    opt.classList.remove('selected');
+                    if (multiSelect) {
+                        opt.querySelector('.option-label').textContent = '☐ ' + optLabel;
+                    } else {
+                        opt.querySelector('.option-label').textContent = '○ ' + optLabel;
+                    }
+                }
+            });
+        }
+
         function getAvailableActions(status) {
             switch(status) {
                 case 'WAITING':
                     return '<button class="btn btn-primary" onclick="analyzeIncident()">🔍 开始分析</button>';
                 case 'ANALYZED':
-                    return '<button class="btn btn-warning" onclick="generateFix()">🔧 生成修复方案</button>';
+                    return '<button class="btn btn-warning" onclick="startFix()">🔧 开始修复</button> <button class="btn" style="background: #6c757d; color: white;" onclick="markNoAction()">⊘ 无需处理</button>';
                 case 'FIXING':
-                    return '<button class="btn btn-success" onclick="applyFix()">✅ 应用修复</button>';
+                    return '<span style="color: #fd7e14;">⏳ 修复中...</span>';
+                case 'AI_FIXED':
+                    return '<span style="color: #17a2b8;">✅ AI已修复</span>';
                 case 'FIXED':
                     return '<span style="color: #28a745;">✅ 已修复完成</span>';
                 case 'FAILED':
                     return '<span style="color: #dc3545;">❌ 处理失败</span>';
+                case 'NO_ACTION_NEEDED':
+                    return '<span style="color: #6c757d;">⊘ 无需处理</span>';
                 default:
                     return '';
             }
@@ -286,6 +409,52 @@
                     loadIncidents();
                 } else {
                     alert('应用失败');
+                }
+            } catch (error) {
+                alert('请求失败: ' + error.message);
+            }
+        }
+
+        async function startFix() {
+            if (!currentIncident) return;
+
+            if (!confirm('确定要开始修复吗？AI 将根据分析结果和您的选择进行修复。')) return;
+
+            try {
+                const response = await fetch(`/api/v1/incidents/${currentIncident.id}/start-fix`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ answers: userAnswers })
+                });
+
+                if (response.ok) {
+                    alert('修复已开始，请稍后刷新查看结果');
+                    closeModal();
+                    loadIncidents();
+                } else {
+                    alert('修复失败');
+                }
+            } catch (error) {
+                alert('请求失败: ' + error.message);
+            }
+        }
+
+        async function markNoAction() {
+            if (!currentIncident) return;
+
+            if (!confirm('确定标记为无需处理吗？')) return;
+
+            try {
+                const response = await fetch(`/api/v1/incidents/${currentIncident.id}/no-action`, {
+                    method: 'POST'
+                });
+
+                if (response.ok) {
+                    alert('已标记为无需处理');
+                    closeModal();
+                    loadIncidents();
+                } else {
+                    alert('操作失败');
                 }
             } catch (error) {
                 alert('请求失败: ' + error.message);

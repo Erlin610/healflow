@@ -6,7 +6,9 @@ public enum IncidentStatus {
   ANALYZED,
   FIXING,
   FIXED,
-  FAILED;
+  FAILED,
+  NO_ACTION_NEEDED,
+  AI_FIXED;
 
   public boolean canTransitionTo(IncidentStatus target) {
     if (target == null || target == this) {
@@ -15,9 +17,9 @@ public enum IncidentStatus {
     return switch (this) {
       case WAITING -> target == ANALYZING || target == FAILED;
       case ANALYZING -> target == ANALYZED || target == FAILED;
-      case ANALYZED -> target == FIXING || target == FAILED;
-      case FIXING -> target == FIXED || target == FAILED;
-      case FIXED, FAILED -> false;
+      case ANALYZED -> target == FIXING || target == FAILED || target == NO_ACTION_NEEDED;
+      case FIXING -> target == AI_FIXED || target == FAILED;
+      case FIXED, FAILED, NO_ACTION_NEEDED, AI_FIXED -> false;
     };
   }
 }

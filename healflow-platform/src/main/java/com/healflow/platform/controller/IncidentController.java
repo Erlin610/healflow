@@ -93,4 +93,30 @@ public class IncidentController {
             return ResponseEntity.internalServerError().build();
         }
     }
+
+    @PostMapping("/{id}/start-fix")
+    public ResponseEntity<Map<String, Object>> startFix(
+            @PathVariable String id,
+            @RequestBody Map<String, Object> request) {
+        log.info("Starting fix for incident: {} with answers: {}", id, request.get("answers"));
+        try {
+            incidentService.startFixWithAnswers(id, request.get("answers"));
+            return ResponseEntity.ok(Map.of("status", "FIXING"));
+        } catch (Exception e) {
+            log.error("Failed to start fix for incident: {}", id, e);
+            return ResponseEntity.internalServerError().build();
+        }
+    }
+
+    @PostMapping("/{id}/no-action")
+    public ResponseEntity<Map<String, Object>> markNoAction(@PathVariable String id) {
+        log.info("Marking incident as no action needed: {}", id);
+        try {
+            incidentService.markNoActionNeeded(id);
+            return ResponseEntity.ok(Map.of("status", "NO_ACTION_NEEDED"));
+        } catch (Exception e) {
+            log.error("Failed to mark no action for incident: {}", id, e);
+            return ResponseEntity.internalServerError().build();
+        }
+    }
 }
