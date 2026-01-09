@@ -6,6 +6,8 @@ import com.healflow.engine.shell.InteractionRule;
 import com.healflow.engine.shell.ShellCommand;
 import com.healflow.engine.shell.ShellExecutionException;
 import com.healflow.engine.shell.ShellRunner;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -15,6 +17,7 @@ import java.util.regex.Pattern;
 
 public class DockerSandboxManager {
 
+  private static final Logger log = LoggerFactory.getLogger(DockerSandboxManager.class);
   private static final Pattern SAFE_CONTAINER_NAME = Pattern.compile("[a-zA-Z0-9_.-]+");
   private static final Duration DEFAULT_TIMEOUT = Duration.ofMinutes(2);
 
@@ -183,8 +186,18 @@ public class DockerSandboxManager {
     Arguments.requireNonNull(interactions, "interactions");
 
     Duration effectiveTimeout = timeout == null ? DEFAULT_TIMEOUT : timeout;
-    Duration idleTimeout = Duration.ofMinutes(5);
+    Duration idleTimeout = Duration.ofMinutes(30);
 
+    // 检查容器是否已存在
+    boolean containerExists = checkContainerExists(safeName);
+    log.info("Container {} exists: {}", safeName, containerExists);
+
+    if (containerExists) {
+      // 容器已存在，使用 docker exec
+      return executeInExistingContainer(safeName, containerWorkspace, argv, effectiveTimeout, idleTimeout, interactions);
+    }
+
+    // 容器不存在，创建新容器（不使用 --rm，手动管理生命周期）
     List<String> dockerArgv = new ArrayList<>();
     dockerArgv.add(dockerExecutable);
     dockerArgv.add("run");
@@ -195,7 +208,8 @@ public class DockerSandboxManager {
       dockerArgv.add("-i");
     }
 
-    dockerArgv.addAll(List.of("--rm", "--name", safeName));
+    // 不使用 --rm，让容器保持运行以便复用 session 数据
+    dockerArgv.addAll(List.of("--name", safeName));
     dockerArgv.addAll(List.of("-v", hostWorkspace.toString() + ":" + containerWorkspace));
     dockerArgv.addAll(List.of("-w", containerWorkspace));
 
@@ -209,27 +223,11 @@ public class DockerSandboxManager {
     dockerArgv.add(image);
     dockerArgv.addAll(argv);
 
-    RuntimeException failure = null;
-    try {
-      // Use regular runner for non-interactive commands to avoid auto-approve rules
-      if (interactions.isEmpty()) {
-        return run(new ShellCommand(dockerArgv, null, effectiveTimeout, Map.of(), List.of(), idleTimeout));
-      } else {
-        return runInteractive(new ShellCommand(dockerArgv, null, effectiveTimeout, Map.of(), interactions, idleTimeout));
-      }
-    } catch (RuntimeException e) {
-      failure = e;
-      throw e;
-    } finally {
-      try {
-        removeForce(safeName);
-      } catch (RuntimeException cleanupFailure) {
-        if (failure != null) {
-          failure.addSuppressed(cleanupFailure);
-        } else {
-          throw cleanupFailure;
-        }
-      }
+    // 不再自动删除容器，让容器保持运行以便复用
+    if (interactions.isEmpty()) {
+      return run(new ShellCommand(dockerArgv, null, effectiveTimeout, Map.of(), List.of(), idleTimeout));
+    } else {
+      return runInteractive(new ShellCommand(dockerArgv, null, effectiveTimeout, Map.of(), interactions, idleTimeout));
     }
   }
 
@@ -269,5 +267,61 @@ public class DockerSandboxManager {
 
   private static String formatFailure(List<String> argv, CommandResult result) {
     return "command=" + String.join(" ", argv) + System.lineSeparator() + result.output();
+  }
+
+  private boolean checkContainerExists(String containerName) {
+    try {
+      List<String> cmd = List.of(dockerExecutable, "inspect", "-f", "{{.State.Running}}", containerName);
+      CommandResult result = shellRunner.run(new ShellCommand(cmd, null, Duration.ofSeconds(10), Map.of(), List.of()));
+      return result.exitCode() == 0;
+    } catch (Exception e) {
+      return false;
+    }
+  }
+
+  private CommandResult executeInExistingContainer(
+      String containerName,
+      String containerWorkspace,
+      List<String> argv,
+      Duration timeout,
+      Duration idleTimeout,
+      List<InteractionRule> interactions) {
+
+    log.info("Executing in existing container: {}", containerName);
+
+    // 检查容器状态
+    List<String> inspectCmd = List.of(dockerExecutable, "inspect", "-f", "{{.State.Running}}", containerName);
+    ShellCommand cmd = new ShellCommand(inspectCmd, null, Duration.ofSeconds(10), Map.of(), List.of());
+    CommandResult result = shellRunner.run(cmd);
+    boolean isRunning = result.output().trim().equals("true");
+
+    log.info("Container {} running status: {}", containerName, isRunning);
+
+    if (!isRunning) {
+      log.warn("Container {} is not running, needs recreation", containerName);
+      throw new RuntimeException("Container exists but is not running, needs recreation: " + containerName);
+    }
+
+    List<String> dockerArgv = new ArrayList<>();
+    dockerArgv.add(dockerExecutable);
+    dockerArgv.add("exec");
+
+    if (!interactions.isEmpty()) {
+      dockerArgv.add("-i");
+    }
+
+    dockerArgv.add("-w");
+    dockerArgv.add(containerWorkspace);
+    dockerArgv.add(containerName);
+    dockerArgv.addAll(argv);
+
+    log.info("Executing command in container: {}", String.join(" ", dockerArgv));
+    log.info("Timeout: {}, Idle timeout: {}", timeout, idleTimeout);
+
+    if (interactions.isEmpty()) {
+      return run(new ShellCommand(dockerArgv, null, timeout, Map.of(), List.of(), idleTimeout));
+    } else {
+      return runInteractive(new ShellCommand(dockerArgv, null, timeout, Map.of(), interactions, idleTimeout));
+    }
   }
 }

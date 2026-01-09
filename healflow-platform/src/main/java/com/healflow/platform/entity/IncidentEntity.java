@@ -37,6 +37,9 @@ public class IncidentEntity {
   private String sessionId;
 
   @Column(length = 256)
+  private String containerName;
+
+  @Column(length = 256)
   private String errorType;
 
   @Lob
@@ -130,6 +133,14 @@ public class IncidentEntity {
 
   public void setSessionId(String sessionId) {
     this.sessionId = sessionId;
+  }
+
+  public String getContainerName() {
+    return containerName;
+  }
+
+  public void setContainerName(String containerName) {
+    this.containerName = containerName;
   }
 
   public String getErrorType() {

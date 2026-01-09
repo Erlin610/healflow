@@ -100,7 +100,11 @@ public class IncidentController {
             @RequestBody Map<String, Object> request) {
         log.info("Starting fix for incident: {} with answers: {}", id, request.get("answers"));
         try {
-            incidentService.startFixWithAnswers(id, request.get("answers"));
+            Object answers = request.get("answers");
+            String additionalInfo = request.get("additionalInfo") != null
+                ? request.get("additionalInfo").toString()
+                : "";
+            incidentService.startFixWithAnswers(id, answers, additionalInfo);
             return ResponseEntity.ok(Map.of("status", "FIXING"));
         } catch (Exception e) {
             log.error("Failed to start fix for incident: {}", id, e);

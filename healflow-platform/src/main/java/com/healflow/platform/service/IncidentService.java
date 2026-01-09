@@ -76,7 +76,8 @@ public class IncidentService {
 
   private static String buildContainerName(String appId) {
     String safeAppId = sanitizeContainerNameComponent(appId);
-    return "healflow-sandbox-" + safeAppId + "-" + Instant.now().toEpochMilli();
+    // 一个 appId 对应一个固定容器，不使用时间戳，永久复用
+    return "healflow-sandbox-" + safeAppId;
   }
 
   private static String sanitizeContainerNameComponent(String value) {
@@ -112,10 +113,13 @@ public class IncidentService {
     incident = incidentRepository.saveAndFlush(incident);
 
     try {
-      AnalysisResult result = analyzeIncident(report);
+      // 生成容器名并传递给分析方法
+      String containerName = buildContainerName(report.appId());
+      AnalysisResult result = analyzeIncident(report, containerName);
       incident.setSessionId(result.sessionId());
       incident.setAnalysisResult(result.structuredOutput());
       incident.setStatus(IncidentStatus.ANALYZED);
+      incident.setContainerName(containerName);
       incidentRepository.save(incident);
       return result;
     } catch (RuntimeException e) {
@@ -279,8 +283,8 @@ public class IncidentService {
     return map;
   }
 
-  public AnalysisResult analyzeIncident(IncidentReport report) {
-    log.info("Phase 5 Stage 1: Analyzing incident for {}", report.appId());
+  public AnalysisResult analyzeIncident(IncidentReport report, String containerName) {
+    log.info("Phase 5 Stage 1: Analyzing incident for {} with container {}", report.appId(), containerName);
 
     try {
       Path sourceCodePath = gitManager.prepareWorkspace(report.appId(), report.repoUrl(), report.branch());
@@ -290,8 +294,9 @@ public class IncidentService {
           "错误类型: %s\n" +
           "错误信息: %s\n" +
           "堆栈跟踪:\n%s\n\n" +
-          "请提供详细的分析，但不要生成修复方案。\n" +
-          "如果需要用户确认某些信息才能进行修复，请在 questions 字段中提出问题。\n" +
+          "请提供详细的分析和修复方案建议，但不要直接修改代码。\n" +
+          "如果有多种修复方案，请列举所有可行方案并标明你推荐哪种。\n" +
+          "如果需要用户确认某些信息才能确定最佳修复方案，请在 questions 字段中提出问题。\n" +
           "问题格式参考 Claude Code 的 AskUserQuestion 工具：\n" +
           "- question: 问题描述\n" +
           "- header: 简短标签（最多12字符）\n" +
@@ -307,19 +312,29 @@ public class IncidentService {
 
       Path schemaFile = sourceCodePath.resolve("analysis-schema.json");
       Path scriptFile = sourceCodePath.resolve("analyze-incident.sh");
+      Path logFile = sourceCodePath.resolve("analyze-incident.log");
 
       try {
         java.nio.file.Files.writeString(schemaFile, jsonSchema);
         String script = "#!/bin/sh\n" +
+            "export IS_SANDBOX=1\n" +
+            "export CLAUDE_CODE_DISABLE_COMMAND_INJECTION_CHECK=true\n" +
             "SCHEMA=$(cat /src/analysis-schema.json)\n" +
             "claude -p '" + prompt.replace("'", "'\\''") + "' " +
             "--allowedTools Read,Grep,Glob " +
             "--output-format json " +
-            "--json-schema \"$SCHEMA\"\n";
+            "--json-schema \"$SCHEMA\" > /src/analyze-incident.log 2>&1\n" +
+            "echo \"Exit code: $?\" >> /src/analyze-incident.log\n";
         java.nio.file.Files.writeString(scriptFile, script);
 
-        String containerName = buildContainerName(report.appId());
         log.info("Executing Claude analysis in container: {}", containerName);
+
+        log.info("=== Starting Analysis Execution ===");
+        log.info("Container: {}", containerName);
+        log.info("Workspace: {}", sourceCodePath);
+        log.info("Script content:\n{}", script);
+        log.info("Docker command: docker run/exec -w /src {} sh /src/analyze-incident.sh", containerName);
+        log.info("Prompt: {}", prompt);
 
         CommandResult result = dockerSandboxManager.executeInteractiveRunInSandbox(
             containerName,
@@ -332,14 +347,39 @@ public class IncidentService {
             List.of()
         );
 
-        String rawOutput = result.output();
-        log.info("Raw result.output() (first 500 chars): {}", truncate(rawOutput, 500));
-        JsonNode response = objectMapper.readTree(rawOutput);
+        log.info("=== Analysis Execution Completed ===");
+        log.info("Exit code: {}", result.exitCode());
+        log.info("Output length: {} chars", result.output().length());
+
+        // 从日志文件读取输出（因为使用了重定向而不是 tee）
+        String rawOutput = "";
+        if (java.nio.file.Files.exists(logFile)) {
+          try {
+            rawOutput = java.nio.file.Files.readString(logFile);
+            log.info("=== Claude Code Log File Content ===\n{}", rawOutput);
+          } catch (Exception e) {
+            log.warn("Failed to read log file: {}", e.getMessage());
+            rawOutput = result.output();
+          }
+        } else {
+          rawOutput = result.output();
+        }
+
+        // 过滤掉警告信息，找到第一个 JSON 对象
+        String jsonOutput = rawOutput;
+        int jsonStart = rawOutput.indexOf('{');
+        if (jsonStart > 0) {
+          jsonOutput = rawOutput.substring(jsonStart);
+          log.info("Filtered {} chars of non-JSON prefix", jsonStart);
+        }
+
+        // Claude Code 输出格式：对象（新）或数组（旧）
+        JsonNode response = objectMapper.readTree(jsonOutput);
         String sessionId = response.path("session_id").asText();
         String structuredOutput = response.path("structured_output").toString();
         String fullText = response.path("result").asText();
 
-        log.info("Analysis complete. Session ID: {}", sessionId);
+        log.info("Analysis complete. Session ID: {}, Container: {}", sessionId, containerName);
         return new AnalysisResult(sessionId, structuredOutput, fullText);
 
       } finally {
@@ -497,7 +537,7 @@ public class IncidentService {
   }
 
   @Async
-  public void startFixWithAnswers(String incidentId, Object answersObj) {
+  public void startFixWithAnswers(String incidentId, Object answersObj, String additionalInfo) {
     log.info("Starting fix with user answers for incident: {}", incidentId);
 
     IncidentEntity incident = incidentRepository.findById(incidentId)
@@ -514,22 +554,43 @@ public class IncidentService {
       Path sourceCodePath = gitManager.prepareWorkspace(
           incident.getAppId(), incident.getRepoUrl(), incident.getBranch());
 
-      String prompt = String.format(
-          "请根据之前的分析结果修复这个错误。\n" +
-          "Session ID: %s\n" +
-          "用户确认的信息: %s\n\n" +
-          "请生成修复代码并应用。请用中文回复。",
-          incident.getSessionId(),
-          answersObj != null ? answersObj.toString() : "无"
-      );
+      StringBuilder promptBuilder = new StringBuilder();
+      promptBuilder.append("请修复这个错误。\n\n");
+      promptBuilder.append("用户确认的信息: ").append(answersObj != null ? answersObj.toString() : "无").append("\n\n");
+
+      if (additionalInfo != null && !additionalInfo.isBlank()) {
+        promptBuilder.append("补充信息: ").append(additionalInfo).append("\n\n");
+      }
+
+      promptBuilder.append("请生成修复代码并应用。只修改必要的代码，不要过度修改。请用中文回复。");
+
+      String prompt = promptBuilder.toString();
 
       Path scriptFile = sourceCodePath.resolve("fix-incident.sh");
+      Path logFile = sourceCodePath.resolve("fix-incident.log");
       String script = "#!/bin/sh\n" +
-          "claude --resume " + incident.getSessionId() + " -p '" +
-          prompt.replace("'", "'\\''") + "'\n";
+          "export IS_SANDBOX=1\n" +
+          "export CLAUDE_CODE_DISABLE_COMMAND_INJECTION_CHECK=true\n" +
+          "claude --dangerously-skip-permissions --resume " + incident.getSessionId() + " '" +
+          prompt.replace("'", "'\\''") + "' > /src/fix-incident.log 2>&1\n" +
+          "echo \"Exit code: $?\" >> /src/fix-incident.log\n";
       java.nio.file.Files.writeString(scriptFile, script);
 
-      String containerName = buildContainerName(incident.getAppId());
+      log.info("=== Starting Fix Execution ===");
+      // 复用分析阶段的容器名，确保 session 数据可用
+      String containerName = incident.getContainerName();
+      if (containerName == null || containerName.isBlank()) {
+        throw new IllegalStateException("Container name not found for incident: " + incidentId);
+      }
+      log.info("Container: {} (reusing from analysis)", containerName);
+      log.info("Session ID: {}", incident.getSessionId());
+      log.info("Workspace: {}", sourceCodePath);
+      log.info("Script content:\n{}", script);
+      log.info("Docker command: docker exec -w /src {} sh /src/fix-incident.sh", containerName);
+      log.info("Prompt: {}", prompt);
+
+      // 脚本已使用 --dangerously-skip-permissions 和环境变量跳过交互，不需要 autoApprovalRules
+      // 传入空列表避免使用 docker exec -i，防止交互模式导致卡住
       CommandResult result = dockerSandboxManager.executeInteractiveRunInSandbox(
           containerName,
           sourceCodePath,
@@ -538,16 +599,54 @@ public class IncidentService {
           Map.of(),
           List.of("sh", "/src/fix-incident.sh"),
           Duration.ofMinutes(30),
-          List.of()
+          List.of()  // 空列表，不使用交互模式
       );
+
+      log.info("=== Fix Execution Completed ===");
+      log.info("Exit code: {}", result.exitCode());
+      log.info("Output length: {} chars", result.output().length());
+
+      // 从日志文件读取输出（因为使用了重定向而不是 tee）
+      String rawOutput = "";
+      if (java.nio.file.Files.exists(logFile)) {
+        try {
+          rawOutput = java.nio.file.Files.readString(logFile);
+          log.info("=== Claude Code Log File Content ===\n{}", rawOutput);
+        } catch (Exception e) {
+          log.warn("Failed to read log file: {}", e.getMessage());
+          rawOutput = result.output();
+        }
+      } else {
+        rawOutput = result.output();
+      }
+
+      log.info("Output (first 2000 chars):\n{}", truncate(rawOutput, 2000));
+      if (rawOutput.length() > 2000) {
+        log.info("Output (last 1000 chars):\n{}", rawOutput.substring(Math.max(0, rawOutput.length() - 1000)));
+      }
+
+      // 检查是否成功（exit code 0 表示成功）
+      boolean fixSuccessful = result.exitCode() == 0;
+      log.info("Fix execution result: {}", fixSuccessful ? "SUCCESS" : "FAILED");
 
       java.nio.file.Files.deleteIfExists(scriptFile);
 
-      incident.setStatus(IncidentStatus.AI_FIXED);
-      incident.setFixProposal("AI修复完成\n\n" + result.output());
-      incidentRepository.save(incident);
+      // 重新加载实体，避免乐观锁冲突
+      incident = incidentRepository.findById(incidentId)
+          .orElseThrow(() -> new IllegalArgumentException("Incident not found: " + incidentId));
 
-      log.info("Fix completed for incident: {}", incidentId);
+      if (fixSuccessful) {
+        incident.setStatus(IncidentStatus.AI_FIXED);
+        incident.setFixProposal("AI修复完成\n\n" + rawOutput);
+        log.info("✓ Fix completed successfully for incident: {}", incidentId);
+      } else {
+        incident.setStatus(IncidentStatus.FAILED);
+        incident.setFixProposal("AI修复失败\n\n" + rawOutput);
+        log.error("✗ Fix failed for incident: {}", incidentId);
+      }
+
+      incidentRepository.save(incident);
+      log.info("Incident status updated to: {}", incident.getStatus());
 
     } catch (Exception e) {
       log.error("Fix failed for incident: {}", incidentId, e);

@@ -131,6 +131,8 @@
                     </div>
                     <div class="incident-meta">
                         <strong>App:</strong> ${inc.appId} |
+                        <strong>错误类型:</strong> ${inc.errorType || '-'} |
+                        <strong>错误信息:</strong> ${(inc.errorMessage || '-').substring(0, 50)}${(inc.errorMessage || '').length > 50 ? '...' : ''} |
                         <strong>创建时间:</strong> ${new Date(inc.createdAt).toLocaleString('zh-CN')}
                     </div>
                 </div>
@@ -260,6 +262,14 @@
                 ` : ''}
                 ${analysisHtml}
                 ${questionsHtml}
+                ${questionsHtml ? `
+                <div class="detail-row">
+                    <div class="detail-label">补充信息（可选）</div>
+                    <div class="detail-value">
+                        <textarea id="additionalInfo" style="width: 100%; min-height: 80px; padding: 8px; border: 1px solid #ddd; border-radius: 4px; font-family: inherit;" placeholder="请输入任何额外的上下文信息或特殊要求..."></textarea>
+                    </div>
+                </div>
+                ` : ''}
                 ${inc.fixProposal ? `
                 <div class="detail-row">
                     <div class="detail-label">修复方案</div>
@@ -420,11 +430,17 @@
 
             if (!confirm('确定要开始修复吗？AI 将根据分析结果和您的选择进行修复。')) return;
 
+            const additionalInfoEl = document.getElementById('additionalInfo');
+            const additionalInfo = additionalInfoEl ? additionalInfoEl.value.trim() : '';
+
             try {
                 const response = await fetch(`/api/v1/incidents/${currentIncident.id}/start-fix`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ answers: userAnswers })
+                    body: JSON.stringify({
+                        answers: userAnswers,
+                        additionalInfo: additionalInfo
+                    })
                 });
 
                 if (response.ok) {
