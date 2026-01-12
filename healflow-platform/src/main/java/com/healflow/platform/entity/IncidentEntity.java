@@ -58,6 +58,18 @@ public class IncidentEntity {
   @Column
   private String fixProposal;
 
+  @Column(length = 64)
+  private String commitId;
+
+  @Column(columnDefinition = "TEXT")
+  private String commitMessage;
+
+  @Column(columnDefinition = "TEXT")
+  private String changedFiles;
+
+  @Column(columnDefinition = "TEXT")
+  private String gitDiff;
+
   @Column(nullable = false, updatable = false)
   private Instant createdAt;
 
@@ -181,6 +193,38 @@ public class IncidentEntity {
 
   public void setFixProposal(String fixProposal) {
     this.fixProposal = fixProposal;
+  }
+
+  public String getCommitId() {
+    return commitId;
+  }
+
+  public void setCommitId(String commitId) {
+    this.commitId = commitId;
+  }
+
+  public String getCommitMessage() {
+    return commitMessage;
+  }
+
+  public void setCommitMessage(String commitMessage) {
+    this.commitMessage = commitMessage;
+  }
+
+  public String getChangedFiles() {
+    return changedFiles;
+  }
+
+  public void setChangedFiles(String changedFiles) {
+    this.changedFiles = changedFiles;
+  }
+
+  public String getGitDiff() {
+    return gitDiff;
+  }
+
+  public void setGitDiff(String gitDiff) {
+    this.gitDiff = gitDiff;
   }
 
   public Instant getCreatedAt() {

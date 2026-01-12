@@ -101,7 +101,7 @@ class IncidentServiceTest {
     com.healflow.engine.sandbox.DockerSandboxManager dockerSandboxManager =
         Mockito.mock(com.healflow.engine.sandbox.DockerSandboxManager.class);
     IncidentService service =
-        new IncidentService(gitManager, dockerSandboxManager, incidentRepository, "sandbox", "ai-image");
+        new IncidentService(gitManager, dockerSandboxManager, incidentRepository, "sandbox", "ai-image", "");
 
     try {
       System.setProperty("user.home", home.toString());
@@ -169,14 +169,7 @@ class IncidentServiceTest {
 
       @SuppressWarnings("unchecked")
       List<String> argv = argvCaptor.getValue();
-      assertTrue(argv.contains("sh"));
-      assertTrue(argv.contains("-c"));
-      String command = argv.get(2);
-      assertTrue(command.contains("printf"));
-      assertTrue(command.contains("claude"));
-      assertTrue(command.contains("--output-format"));
-      assertTrue(command.contains("json"));
-      assertTrue(command.contains("--json-schema"));
+      assertEquals(List.of("sh", "/src/analyze-incident.sh"), argv);
     } finally {
       if (previousUserHome == null) {
         System.clearProperty("user.home");
@@ -294,7 +287,7 @@ class IncidentServiceTest {
     GitWorkspaceManager gitManager = Mockito.mock(GitWorkspaceManager.class);
     DockerSandboxManager dockerSandboxManager = Mockito.mock(DockerSandboxManager.class);
     IncidentService service =
-        Mockito.spy(new IncidentService(gitManager, dockerSandboxManager, incidentRepository, "sandbox", "ai"));
+        Mockito.spy(new IncidentService(gitManager, dockerSandboxManager, incidentRepository, "sandbox", "ai", ""));
 
     IncidentReport report =
         new IncidentReport(
@@ -309,7 +302,7 @@ class IncidentServiceTest {
 
     Mockito.doReturn(new AnalysisResult("sess-1", "{\"ok\":true}", "analysis"))
         .when(service)
-        .analyzeIncident(report);
+        .analyzeIncident(Mockito.eq(report), any(String.class));
 
     AnalysisResult result = service.analyzeIncident("inc-1", report);
     assertEquals("sess-1", result.sessionId());
@@ -335,7 +328,7 @@ class IncidentServiceTest {
     GitWorkspaceManager gitManager = Mockito.mock(GitWorkspaceManager.class);
     DockerSandboxManager dockerSandboxManager = Mockito.mock(DockerSandboxManager.class);
     IncidentService service =
-        Mockito.spy(new IncidentService(gitManager, dockerSandboxManager, incidentRepository, "sandbox", "ai"));
+        Mockito.spy(new IncidentService(gitManager, dockerSandboxManager, incidentRepository, "sandbox", "ai", ""));
 
     IncidentReport report =
         new IncidentReport(
@@ -350,7 +343,7 @@ class IncidentServiceTest {
 
     Mockito.doReturn(new AnalysisResult("sess-1", "{\"ok\":true}", "analysis"))
         .when(service)
-        .analyzeIncident(report);
+        .analyzeIncident(Mockito.eq(report), any(String.class));
 
     service.analyzeIncident("inc-existing", report);
 
@@ -369,7 +362,7 @@ class IncidentServiceTest {
     GitWorkspaceManager gitManager = Mockito.mock(GitWorkspaceManager.class);
     DockerSandboxManager dockerSandboxManager = Mockito.mock(DockerSandboxManager.class);
     IncidentService service =
-        new IncidentService(gitManager, dockerSandboxManager, incidentRepository, "sandbox", "ai");
+        new IncidentService(gitManager, dockerSandboxManager, incidentRepository, "sandbox", "ai", "");
 
     IncidentReport report =
         new IncidentReport(
@@ -392,7 +385,7 @@ class IncidentServiceTest {
     GitWorkspaceManager gitManager = Mockito.mock(GitWorkspaceManager.class);
     DockerSandboxManager dockerSandboxManager = Mockito.mock(DockerSandboxManager.class);
     IncidentService service =
-        new IncidentService(gitManager, dockerSandboxManager, incidentRepository, "sandbox", "ai");
+        new IncidentService(gitManager, dockerSandboxManager, incidentRepository, "sandbox", "ai", "");
 
     IncidentReport report =
         new IncidentReport(
@@ -417,7 +410,7 @@ class IncidentServiceTest {
     GitWorkspaceManager gitManager = Mockito.mock(GitWorkspaceManager.class);
     DockerSandboxManager dockerSandboxManager = Mockito.mock(DockerSandboxManager.class);
     IncidentService service =
-        new IncidentService(gitManager, dockerSandboxManager, incidentRepository, "sandbox", "ai");
+        new IncidentService(gitManager, dockerSandboxManager, incidentRepository, "sandbox", "ai", "");
 
     assertThrows(IllegalArgumentException.class, () -> service.generateFix("missing"));
   }
@@ -429,7 +422,7 @@ class IncidentServiceTest {
     GitWorkspaceManager gitManager = Mockito.mock(GitWorkspaceManager.class);
     DockerSandboxManager dockerSandboxManager = Mockito.mock(DockerSandboxManager.class);
     IncidentService service =
-        Mockito.spy(new IncidentService(gitManager, dockerSandboxManager, incidentRepository, "sandbox", "ai"));
+        Mockito.spy(new IncidentService(gitManager, dockerSandboxManager, incidentRepository, "sandbox", "ai", ""));
 
     IncidentReport report =
         new IncidentReport(
@@ -442,7 +435,7 @@ class IncidentServiceTest {
             Map.of(),
             Instant.parse("2026-01-05T00:00:00Z"));
 
-    Mockito.doThrow(new RuntimeException("boom")).when(service).analyzeIncident(report);
+    Mockito.doThrow(new RuntimeException("boom")).when(service).analyzeIncident(Mockito.eq(report), any(String.class));
     assertThrows(RuntimeException.class, () -> service.analyzeIncident("inc-fail", report));
 
     IncidentEntity persisted = incidentRepository.findById("inc-fail").orElseThrow();
@@ -462,7 +455,7 @@ class IncidentServiceTest {
     GitWorkspaceManager gitManager = Mockito.mock(GitWorkspaceManager.class);
     DockerSandboxManager dockerSandboxManager = Mockito.mock(DockerSandboxManager.class);
     IncidentService service =
-        Mockito.spy(new IncidentService(gitManager, dockerSandboxManager, incidentRepository, "sandbox", "ai"));
+        Mockito.spy(new IncidentService(gitManager, dockerSandboxManager, incidentRepository, "sandbox", "ai", ""));
 
     Path workspace = Path.of("build-scratch/workspace");
     Mockito.when(gitManager.prepareWorkspace("app-2", "https://example.invalid/repo.git", "main"))
@@ -503,7 +496,7 @@ class IncidentServiceTest {
     GitWorkspaceManager gitManager = Mockito.mock(GitWorkspaceManager.class);
     DockerSandboxManager dockerSandboxManager = Mockito.mock(DockerSandboxManager.class);
     IncidentService service =
-        Mockito.spy(new IncidentService(gitManager, dockerSandboxManager, incidentRepository, "sandbox", "ai"));
+        Mockito.spy(new IncidentService(gitManager, dockerSandboxManager, incidentRepository, "sandbox", "ai", ""));
 
     Path workspace = Path.of("build-scratch/workspace");
     Mockito.when(gitManager.prepareWorkspace("app-2", "https://example.invalid/repo.git", "main"))
@@ -529,7 +522,7 @@ class IncidentServiceTest {
     GitWorkspaceManager gitManager = Mockito.mock(GitWorkspaceManager.class);
     DockerSandboxManager dockerSandboxManager = Mockito.mock(DockerSandboxManager.class);
     IncidentService service =
-        Mockito.spy(new IncidentService(gitManager, dockerSandboxManager, incidentRepository, "sandbox", "ai"));
+        Mockito.spy(new IncidentService(gitManager, dockerSandboxManager, incidentRepository, "sandbox", "ai", ""));
 
     Path workspace = Path.of("build-scratch/workspace");
     Mockito.when(gitManager.prepareWorkspace("app-2", "https://example.invalid/repo.git", "main"))
@@ -550,7 +543,7 @@ class IncidentServiceTest {
     GitWorkspaceManager gitManager = Mockito.mock(GitWorkspaceManager.class);
     DockerSandboxManager dockerSandboxManager = Mockito.mock(DockerSandboxManager.class);
     IncidentService service =
-        new IncidentService(gitManager, dockerSandboxManager, incidentRepository, "sandbox", "ai");
+        new IncidentService(gitManager, dockerSandboxManager, incidentRepository, "sandbox", "ai", "");
 
     assertThrows(IllegalStateException.class, () -> service.generateFix("inc-3"));
     assertEquals(IncidentStatus.WAITING, incidentRepository.findById("inc-3").orElseThrow().getStatus());
@@ -567,7 +560,7 @@ class IncidentServiceTest {
     GitWorkspaceManager gitManager = Mockito.mock(GitWorkspaceManager.class);
     DockerSandboxManager dockerSandboxManager = Mockito.mock(DockerSandboxManager.class);
     IncidentService service =
-        new IncidentService(gitManager, dockerSandboxManager, incidentRepository, "sandbox", "ai");
+        new IncidentService(gitManager, dockerSandboxManager, incidentRepository, "sandbox", "ai", "");
 
     assertThrows(IllegalStateException.class, () -> service.generateFix("inc-missing"));
   }
@@ -584,7 +577,7 @@ class IncidentServiceTest {
     GitWorkspaceManager gitManager = Mockito.mock(GitWorkspaceManager.class);
     DockerSandboxManager dockerSandboxManager = Mockito.mock(DockerSandboxManager.class);
     IncidentService service =
-        new IncidentService(gitManager, dockerSandboxManager, incidentRepository, "sandbox", "ai");
+        new IncidentService(gitManager, dockerSandboxManager, incidentRepository, "sandbox", "ai", "");
 
     assertThrows(IllegalStateException.class, () -> service.generateFix("inc-no-session"));
   }
@@ -602,7 +595,7 @@ class IncidentServiceTest {
     GitWorkspaceManager gitManager = Mockito.mock(GitWorkspaceManager.class);
     DockerSandboxManager dockerSandboxManager = Mockito.mock(DockerSandboxManager.class);
     IncidentService service =
-        new IncidentService(gitManager, dockerSandboxManager, incidentRepository, "sandbox", "ai");
+        new IncidentService(gitManager, dockerSandboxManager, incidentRepository, "sandbox", "ai", "");
 
     assertThrows(IllegalStateException.class, () -> service.applyFix("inc-not-fixing"));
   }
@@ -612,7 +605,7 @@ class IncidentServiceTest {
     assertTrue(IncidentStatus.WAITING.canTransitionTo(IncidentStatus.ANALYZING));
     assertTrue(IncidentStatus.ANALYZING.canTransitionTo(IncidentStatus.ANALYZED));
     assertTrue(IncidentStatus.ANALYZED.canTransitionTo(IncidentStatus.FIXING));
-    assertTrue(IncidentStatus.FIXING.canTransitionTo(IncidentStatus.FIXED));
+    assertTrue(IncidentStatus.FIXING.canTransitionTo(IncidentStatus.AI_FIXED));
 
     assertTrue(!IncidentStatus.FIXED.canTransitionTo(IncidentStatus.FAILED));
     assertTrue(!IncidentStatus.FAILED.canTransitionTo(IncidentStatus.WAITING));
@@ -626,7 +619,7 @@ class IncidentServiceTest {
     assertEquals("app", invokeSanitizeContainerNameComponent("   "));
     assertEquals("ok-._123", invokeSanitizeContainerNameComponent("ok-._123"));
     assertEquals("a-b-c", invokeSanitizeContainerNameComponent("a b/c"));
-    assertTrue(invokeBuildContainerName("app-123").startsWith("healflow-sandbox-app-123-"));
+    assertEquals("healflow-sandbox-app-123", invokeBuildContainerName("app-123"));
   }
 
   @Test
@@ -648,7 +641,8 @@ class IncidentServiceTest {
             dockerSandboxManager,
             Mockito.mock(com.healflow.platform.repository.IncidentRepository.class),
             "sandbox-image",
-            "ai-image");
+            "ai-image",
+            "");
 
     try {
       System.setProperty("user.home", home.toString());
@@ -680,7 +674,8 @@ class IncidentServiceTest {
             dockerSandboxManager,
             Mockito.mock(com.healflow.platform.repository.IncidentRepository.class),
             "sandbox-image",
-            "ai-image");
+            "ai-image",
+            "");
 
     try {
       System.setProperty("user.home", home.toString());
@@ -722,7 +717,8 @@ class IncidentServiceTest {
               any(List.class)))
           .thenReturn(new CommandResult(0, sandboxJson));
 
-      com.healflow.common.dto.AnalysisResult result = service.analyzeIncident(report);
+      String containerName = "healflow-sandbox-app-123";
+      com.healflow.common.dto.AnalysisResult result = service.analyzeIncident(report, containerName);
       assertEquals("sess-123", result.sessionId());
       assertEquals(structuredOutput, result.structuredOutput());
       assertEquals("analysis", result.fullText());
@@ -731,7 +727,7 @@ class IncidentServiceTest {
       var argvCaptor = org.mockito.ArgumentCaptor.forClass(List.class);
       verify(dockerSandboxManager)
           .executeInteractiveRunInSandbox(
-              argThat(name -> name.startsWith("healflow-sandbox-app-123-")),
+              org.mockito.ArgumentMatchers.eq(containerName),
               org.mockito.ArgumentMatchers.eq(workspace),
               org.mockito.ArgumentMatchers.eq("/src"),
               org.mockito.ArgumentMatchers.eq("ai-image"),
@@ -742,17 +738,11 @@ class IncidentServiceTest {
 
       @SuppressWarnings("unchecked")
       Map<String, String> environment = environmentCaptor.getValue();
-      assertEquals(expectedApiKey, environment.get("ANTHROPIC_API_KEY"));
+      assertTrue(environment.isEmpty());
 
       @SuppressWarnings("unchecked")
       List<String> argv = argvCaptor.getValue();
-      assertEquals("claude", argv.get(0));
-      assertTrue(argv.contains("--output-format"));
-      assertTrue(argv.contains("json"));
-      assertTrue(argv.contains("--allowedTools"));
-      assertTrue(argv.contains("Read,Grep,Glob"));
-      String prompt = argv.get(2);
-      assertTrue(prompt.contains(stackTrace.substring(0, 1000) + "..."));
+      assertEquals(List.of("sh", "/src/analyze-incident.sh"), argv);
     } finally {
       if (previousUserHome == null) {
         System.clearProperty("user.home");
@@ -777,7 +767,8 @@ class IncidentServiceTest {
             dockerSandboxManager,
             Mockito.mock(com.healflow.platform.repository.IncidentRepository.class),
             "sandbox-image",
-            "ai-image");
+            "ai-image",
+            "");
 
     try {
       System.setProperty("user.home", home.toString());
@@ -812,7 +803,7 @@ class IncidentServiceTest {
       var argvCaptor = org.mockito.ArgumentCaptor.forClass(List.class);
       verify(dockerSandboxManager)
           .executeInteractiveRunInSandbox(
-              argThat(name -> name.startsWith("healflow-sandbox-fix-gen-")),
+              org.mockito.ArgumentMatchers.eq("healflow-sandbox-fix-gen"),
               org.mockito.ArgumentMatchers.eq(workspace),
               org.mockito.ArgumentMatchers.eq("/src"),
               org.mockito.ArgumentMatchers.eq("ai-image"),
@@ -827,11 +818,11 @@ class IncidentServiceTest {
 
       @SuppressWarnings("unchecked")
       List<String> argv = argvCaptor.getValue();
-      assertEquals("claude", argv.get(0));
-      assertTrue(argv.contains("--resume"));
-      assertTrue(argv.contains(sessionId));
-      assertTrue(argv.contains("--allowedTools"));
-      assertTrue(argv.contains("Read"));
+      assertEquals("sh", argv.get(0));
+      assertEquals("-c", argv.get(1));
+      String command = argv.get(2);
+      assertTrue(command.contains("--resume " + sessionId));
+      assertTrue(command.contains("--allowedTools Read"));
     } finally {
       if (previousUserHome == null) {
         System.clearProperty("user.home");
@@ -856,7 +847,8 @@ class IncidentServiceTest {
             dockerSandboxManager,
             Mockito.mock(com.healflow.platform.repository.IncidentRepository.class),
             "sandbox-image",
-            "ai-image");
+            "ai-image",
+            "");
 
     try {
       System.setProperty("user.home", home.toString());
@@ -889,7 +881,7 @@ class IncidentServiceTest {
       var argvCaptor = org.mockito.ArgumentCaptor.forClass(List.class);
       verify(dockerSandboxManager)
           .executeInteractiveRunInSandbox(
-              argThat(name -> name.startsWith("healflow-sandbox-fix-apply-")),
+              org.mockito.ArgumentMatchers.eq("healflow-sandbox-fix-apply"),
               org.mockito.ArgumentMatchers.eq(workspace),
               org.mockito.ArgumentMatchers.eq("/src"),
               org.mockito.ArgumentMatchers.eq("ai-image"),
@@ -932,7 +924,8 @@ class IncidentServiceTest {
             dockerSandboxManager,
             Mockito.mock(com.healflow.platform.repository.IncidentRepository.class),
             "sandbox-image",
-            "ai-image");
+            "ai-image",
+            "");
 
     try {
       System.setProperty("user.home", home.toString());
@@ -967,7 +960,8 @@ class IncidentServiceTest {
             dockerSandboxManager,
             Mockito.mock(com.healflow.platform.repository.IncidentRepository.class),
             "sandbox-image",
-            "ai-image");
+            "ai-image",
+            "");
 
     try {
       System.setProperty("user.home", home.toString());
@@ -1003,7 +997,8 @@ class IncidentServiceTest {
             dockerSandboxManager,
             Mockito.mock(com.healflow.platform.repository.IncidentRepository.class),
             "sandbox-image",
-            "ai-image");
+            "ai-image",
+            "");
 
     assertEquals("", invokeTruncate(service, null, 10));
     assertEquals("abc", invokeTruncate(service, "abc", 10));

@@ -40,7 +40,14 @@
       "Bash(where:*)",
       "Bash(mvn clean install:*)",
       "Bash(mvn -pl healflow-platform -am clean compile -DskipTests)",
-      "Bash(mvn test:*)"
+      "Bash(mvn test:*)",
+      "Bash(timeout 600 tail:*)",
+      "Skill(dev)",
+      "Bash(cmd:*)",
+      "Bash(cmd.exe /c \"set JAVA_HOME=C:\\\\Program Files\\\\Java\\\\jdk-21 && set PATH=%JAVA_HOME%\\\\bin;%PATH% && mvn clean install -DskipTests\")",
+      "Bash(powershell.exe -Command:*)",
+      "Bash(./build.bat)",
+      "Bash(jar:*)"
     ]
   }
 }

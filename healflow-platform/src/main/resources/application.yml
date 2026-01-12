@@ -20,3 +20,5 @@ healflow:
   high-severity-token: panic
   sandbox:
     image: "ubuntu:latest"
+  git:
+    token: ${GIT_TOKEN:}

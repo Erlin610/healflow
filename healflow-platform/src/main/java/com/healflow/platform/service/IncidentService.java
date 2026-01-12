@@ -1,11 +1,14 @@
 package com.healflow.platform.service;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.healflow.common.dto.AnalysisResult;
 import com.healflow.common.dto.FixProposal;
 import com.healflow.common.dto.FixResult;
 import com.healflow.common.dto.IncidentReport;
+import com.healflow.engine.dto.CommitInfo;
+import com.healflow.engine.git.JGitManager;
 import com.healflow.engine.git.GitWorkspaceManager;
 import com.healflow.engine.sandbox.DockerSandboxManager;
 import com.healflow.engine.sandbox.SandboxException;
@@ -42,19 +45,22 @@ public class IncidentService {
   private final String sandboxImage;
   private final String aiAgentImage;
   private final ObjectMapper objectMapper;
+  private final JGitManager jGitManager;
 
   public IncidentService(
       GitWorkspaceManager gitManager,
       DockerSandboxManager dockerSandboxManager,
       IncidentRepository incidentRepository,
       @Value("${healflow.sandbox.image:ubuntu:latest}") String sandboxImage,
-      @Value("${healflow.ai.image:healflow-agent:v1}") String aiAgentImage) {
+      @Value("${healflow.ai.image:healflow-agent:v1}") String aiAgentImage,
+      @Value("${healflow.git.token:}") String gitToken) {
     this.gitManager = gitManager;
     this.dockerSandboxManager = dockerSandboxManager;
     this.incidentRepository = incidentRepository;
     this.sandboxImage = sandboxImage;
     this.aiAgentImage = aiAgentImage;
     this.objectMapper = new ObjectMapper();
+    this.jGitManager = new JGitManager(gitToken);
   }
 
   public String createIncident(IncidentReport report) {
@@ -536,6 +542,54 @@ public class IncidentService {
     return text.length() > maxLength ? text.substring(0, maxLength) + "..." : text;
   }
 
+  private void commitAndPushFixIfPossible(IncidentEntity incident, Path repositoryDirectory) {
+    String incidentId = incident.getId();
+    String branch = incident.getBranch();
+    String errorType = incident.getErrorType();
+
+    if (branch == null || branch.isBlank()) {
+      log.warn("Skipping commit/push: missing branch for incident {}", incidentId);
+      return;
+    }
+    if (errorType == null || errorType.isBlank()) {
+      log.warn("Skipping commit/push: missing errorType for incident {}", incidentId);
+      return;
+    }
+
+    String normalizedBranch = branch.trim();
+    if (normalizedBranch.startsWith("origin/")) {
+      normalizedBranch = normalizedBranch.substring("origin/".length());
+    }
+
+    try {
+      Optional<CommitInfo> committed = jGitManager.commitFix(repositoryDirectory, incidentId, errorType);
+      if (committed.isEmpty()) {
+        log.info("No repository changes detected; skipping push for incident {}", incidentId);
+        return;
+      }
+      CommitInfo commitInfo = committed.get();
+      incident.setCommitId(commitInfo.commitId());
+      incident.setCommitMessage(commitInfo.commitMessage());
+      try {
+        incident.setChangedFiles(objectMapper.writeValueAsString(commitInfo.changedFiles()));
+        incident.setGitDiff(objectMapper.writeValueAsString(commitInfo.gitDiff()));
+      } catch (JsonProcessingException e) {
+        log.error("Failed to serialize commit info for incident {}", incidentId, e);
+      }
+      log.info("Committed fix for incident {} at {}", incidentId, commitInfo.commitId());
+    } catch (RuntimeException e) {
+      log.error("Git commit failed for incident {}", incidentId, e);
+      return;
+    }
+
+    try {
+      jGitManager.push(repositoryDirectory, normalizedBranch);
+      log.info("Pushed fix for incident {} to branch {}", incidentId, normalizedBranch);
+    } catch (RuntimeException e) {
+      log.error("Git push failed for incident {} branch {}", incidentId, normalizedBranch, e);
+    }
+  }
+
   @Async
   public void startFixWithAnswers(String incidentId, Object answersObj, String additionalInfo) {
     log.info("Starting fix with user answers for incident: {}", incidentId);
@@ -636,6 +690,7 @@ public class IncidentService {
           .orElseThrow(() -> new IllegalArgumentException("Incident not found: " + incidentId));
 
       if (fixSuccessful) {
+        commitAndPushFixIfPossible(incident, sourceCodePath);
         incident.setStatus(IncidentStatus.AI_FIXED);
         incident.setFixProposal("AI修复完成\n\n" + rawOutput);
         log.info("✓ Fix completed successfully for incident: {}", incidentId);
