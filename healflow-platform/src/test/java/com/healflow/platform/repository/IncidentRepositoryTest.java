@@ -5,9 +5,11 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.healflow.common.enums.IncidentStatus;
 import com.healflow.platform.entity.IncidentEntity;
-import com.healflow.platform.entity.IncidentStatus;
+import java.time.Instant;
 import java.util.List;
+import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
@@ -18,7 +20,7 @@ class IncidentRepositoryTest {
 
   @Test
   void savesAndLoadsIncident() {
-    IncidentEntity incident = new IncidentEntity("inc-1", "app-1", IncidentStatus.WAITING);
+    IncidentEntity incident = new IncidentEntity("inc-1", "app-1", IncidentStatus.OPEN);
     incident.setRepoUrl("https://example.invalid/repo.git");
     incident.setBranch("main");
 
@@ -28,7 +30,7 @@ class IncidentRepositoryTest {
     assertEquals("app-1", loaded.getAppId());
     assertEquals("https://example.invalid/repo.git", loaded.getRepoUrl());
     assertEquals("main", loaded.getBranch());
-    assertEquals(IncidentStatus.WAITING, loaded.getStatus());
+    assertEquals(IncidentStatus.OPEN, loaded.getStatus());
     assertNotNull(loaded.getCreatedAt());
     assertNotNull(loaded.getUpdatedAt());
   }
@@ -37,18 +39,18 @@ class IncidentRepositoryTest {
   void supportsQueriesByAppIdAndStatus() {
     incidentRepository.saveAll(
         List.of(
-            new IncidentEntity("inc-a", "app-x", IncidentStatus.WAITING),
-            new IncidentEntity("inc-b", "app-x", IncidentStatus.ANALYZED),
-            new IncidentEntity("inc-c", "app-y", IncidentStatus.ANALYZED)));
+            new IncidentEntity("inc-a", "app-x", IncidentStatus.OPEN),
+            new IncidentEntity("inc-b", "app-x", IncidentStatus.PENDING_REVIEW),
+            new IncidentEntity("inc-c", "app-y", IncidentStatus.PENDING_REVIEW)));
     incidentRepository.flush();
 
     assertEquals(2, incidentRepository.findByAppId("app-x").size());
-    assertEquals(2, incidentRepository.findByStatus(IncidentStatus.ANALYZED).size());
+    assertEquals(2, incidentRepository.findByStatus(IncidentStatus.PENDING_REVIEW).size());
   }
 
   @Test
   void updatesIncrementVersion() {
-    IncidentEntity incident = new IncidentEntity("inc-version", "app-1", IncidentStatus.WAITING);
+    IncidentEntity incident = new IncidentEntity("inc-version", "app-1", IncidentStatus.OPEN);
     incidentRepository.saveAndFlush(incident);
 
     long versionBefore = incidentRepository.findById("inc-version").orElseThrow().getVersion();
@@ -61,11 +63,27 @@ class IncidentRepositoryTest {
   }
 
   @Test
-  void incidentEntityValidatesRequiredFields() {
-    assertThrows(IllegalArgumentException.class, () -> new IncidentEntity(" ", "app-1", IncidentStatus.WAITING));
-    assertThrows(IllegalArgumentException.class, () -> new IncidentEntity("inc-1", " ", IncidentStatus.WAITING));
+  void statusChangedAtUpdatesWhenStatusChanges() throws Exception {
+    IncidentEntity incident = new IncidentEntity("inc-status", "app-1", IncidentStatus.OPEN);
+    incidentRepository.saveAndFlush(incident);
 
-    IncidentEntity entity = new IncidentEntity("inc-1", "app-1", IncidentStatus.WAITING);
+    Instant before = incidentRepository.findById("inc-status").orElseThrow().getStatusChangedAt();
+    TimeUnit.MILLISECONDS.sleep(5);
+
+    IncidentEntity loaded = incidentRepository.findById("inc-status").orElseThrow();
+    loaded.setStatus(IncidentStatus.ANALYZING);
+    incidentRepository.saveAndFlush(loaded);
+
+    Instant after = incidentRepository.findById("inc-status").orElseThrow().getStatusChangedAt();
+    assertTrue(after.isAfter(before));
+  }
+
+  @Test
+  void incidentEntityValidatesRequiredFields() {
+    assertThrows(IllegalArgumentException.class, () -> new IncidentEntity(" ", "app-1", IncidentStatus.OPEN));
+    assertThrows(IllegalArgumentException.class, () -> new IncidentEntity("inc-1", " ", IncidentStatus.OPEN));
+
+    IncidentEntity entity = new IncidentEntity("inc-1", "app-1", IncidentStatus.OPEN);
     assertThrows(IllegalArgumentException.class, () -> entity.setAppId(" "));
     assertThrows(IllegalArgumentException.class, () -> entity.setStatus(null));
   }

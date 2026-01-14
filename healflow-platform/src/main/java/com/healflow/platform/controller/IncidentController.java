@@ -28,7 +28,7 @@ public class IncidentController {
     public ResponseEntity<Map<String, String>> receiveReport(@RequestBody IncidentReport report) {
         log.info("Received report for app: {}", report.appId());
         String incidentId = incidentService.createIncident(report);
-        return ResponseEntity.ok(Map.of("incidentId", incidentId, "status", "WAITING"));
+        return ResponseEntity.ok(Map.of("incidentId", incidentId, "status", "OPEN"));
     }
 
     @GetMapping
@@ -105,7 +105,7 @@ public class IncidentController {
                 ? request.get("additionalInfo").toString()
                 : "";
             incidentService.startFixWithAnswers(id, answers, additionalInfo);
-            return ResponseEntity.ok(Map.of("status", "FIXING"));
+            return ResponseEntity.ok(Map.of("status", "PENDING_REVIEW"));
         } catch (Exception e) {
             log.error("Failed to start fix for incident: {}", id, e);
             return ResponseEntity.internalServerError().build();
@@ -117,7 +117,7 @@ public class IncidentController {
         log.info("Marking incident as no action needed: {}", id);
         try {
             incidentService.markNoActionNeeded(id);
-            return ResponseEntity.ok(Map.of("status", "NO_ACTION_NEEDED"));
+            return ResponseEntity.ok(Map.of("status", "IGNORED"));
         } catch (Exception e) {
             log.error("Failed to mark no action for incident: {}", id, e);
             return ResponseEntity.internalServerError().build();

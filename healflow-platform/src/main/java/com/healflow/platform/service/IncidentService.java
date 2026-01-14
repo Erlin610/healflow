@@ -7,6 +7,7 @@ import com.healflow.common.dto.AnalysisResult;
 import com.healflow.common.dto.FixProposal;
 import com.healflow.common.dto.FixResult;
 import com.healflow.common.dto.IncidentReport;
+import com.healflow.common.enums.IncidentStatus;
 import com.healflow.engine.dto.CommitInfo;
 import com.healflow.engine.git.JGitManager;
 import com.healflow.engine.git.GitWorkspaceManager;
@@ -14,8 +15,9 @@ import com.healflow.engine.sandbox.DockerSandboxManager;
 import com.healflow.engine.sandbox.SandboxException;
 import com.healflow.engine.shell.CommandResult;
 import com.healflow.engine.shell.ShellTimeoutException;
+import com.healflow.platform.dto.WebhookPayload;
+import com.healflow.platform.entity.ErrorFingerprintEntity;
 import com.healflow.platform.entity.IncidentEntity;
-import com.healflow.platform.entity.IncidentStatus;
 import com.healflow.platform.repository.IncidentRepository;
 import java.io.File;
 import java.time.Instant;
@@ -26,6 +28,7 @@ import java.nio.file.Path;
 import java.util.Optional;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
@@ -42,40 +45,55 @@ public class IncidentService {
   private final GitWorkspaceManager gitManager;
   private final DockerSandboxManager dockerSandboxManager;
   private final IncidentRepository incidentRepository;
+  private final FingerprintService fingerprintService;
   private final String sandboxImage;
   private final String aiAgentImage;
   private final ObjectMapper objectMapper;
   private final JGitManager jGitManager;
+  private WebhookService webhookService;
 
   public IncidentService(
       GitWorkspaceManager gitManager,
       DockerSandboxManager dockerSandboxManager,
       IncidentRepository incidentRepository,
+      FingerprintService fingerprintService,
       @Value("${healflow.sandbox.image:ubuntu:latest}") String sandboxImage,
       @Value("${healflow.ai.image:healflow-agent:v1}") String aiAgentImage,
       @Value("${healflow.git.token:}") String gitToken) {
     this.gitManager = gitManager;
     this.dockerSandboxManager = dockerSandboxManager;
     this.incidentRepository = incidentRepository;
+    this.fingerprintService = fingerprintService;
     this.sandboxImage = sandboxImage;
     this.aiAgentImage = aiAgentImage;
     this.objectMapper = new ObjectMapper();
     this.jGitManager = new JGitManager(gitToken);
   }
 
+  @Autowired(required = false)
+  void setWebhookService(WebhookService webhookService) {
+    this.webhookService = webhookService;
+  }
+
   public String createIncident(IncidentReport report) {
     log.info("Creating incident for app: {}", report.appId());
 
     String incidentId = "inc-" + System.currentTimeMillis();
-    IncidentEntity incident = new IncidentEntity(incidentId, report.appId(), IncidentStatus.WAITING);
+    IncidentEntity incident = new IncidentEntity(incidentId, report.appId(), IncidentStatus.OPEN);
     incident.setRepoUrl(report.repoUrl());
     incident.setBranch(report.branch());
     incident.setErrorType(report.errorType());
     incident.setErrorMessage(report.errorMessage());
     incident.setStackTrace(report.stackTrace());
 
+    ErrorFingerprintEntity fingerprint = fingerprintService.recordOccurrence(
+        report.errorType(), report.stackTrace());
+    incident.setFingerprintId(fingerprint.getFingerprint());
+
     incidentRepository.save(incident);
-    log.info("Incident created with ID: {}", incidentId);
+    notifyWebhook(incident, report);
+    log.info("Incident created with ID: {}, fingerprint: {}, occurrenceCount: {}",
+        incidentId, fingerprint.getFingerprint(), fingerprint.getOccurrenceCount());
 
     return incidentId;
   }
@@ -124,27 +142,24 @@ public class IncidentService {
       AnalysisResult result = analyzeIncident(report, containerName);
       incident.setSessionId(result.sessionId());
       incident.setAnalysisResult(result.structuredOutput());
-      incident.setStatus(IncidentStatus.ANALYZED);
+      transitionOrThrow(incident, IncidentStatus.PENDING_REVIEW);
       incident.setContainerName(containerName);
       incidentRepository.save(incident);
       return result;
     } catch (RuntimeException e) {
-      failIncident(incident.getId());
+      resetIncidentStatus(incident.getId(), IncidentStatus.OPEN);
       throw e;
     }
   }
 
   public FixProposal generateFix(String incidentId) {
     IncidentEntity incident = loadIncidentOrThrow(incidentId);
-    if (incident.getStatus() != IncidentStatus.ANALYZED) {
-      throw new IllegalStateException("Incident is not ANALYZED");
+    if (incident.getStatus() != IncidentStatus.PENDING_REVIEW) {
+      throw new IllegalStateException("Incident is not PENDING_REVIEW");
     }
     if (incident.getSessionId() == null || incident.getSessionId().isBlank()) {
       throw new IllegalStateException("Incident has no sessionId");
     }
-
-    transitionOrThrow(incident, IncidentStatus.FIXING);
-    incident = incidentRepository.saveAndFlush(incident);
 
     Path workspace = prepareWorkspaceOrThrow(incident);
     try {
@@ -153,15 +168,15 @@ public class IncidentService {
       incidentRepository.save(incident);
       return proposal;
     } catch (RuntimeException e) {
-      failIncident(incident.getId());
+      resetIncidentStatus(incident.getId(), IncidentStatus.PENDING_REVIEW);
       throw e;
     }
   }
 
   public FixResult applyFix(String incidentId) {
     IncidentEntity incident = loadIncidentOrThrow(incidentId);
-    if (incident.getStatus() != IncidentStatus.FIXING) {
-      throw new IllegalStateException("Incident is not FIXING");
+    if (incident.getStatus() != IncidentStatus.PENDING_REVIEW) {
+      throw new IllegalStateException("Incident is not PENDING_REVIEW");
     }
     if (incident.getSessionId() == null || incident.getSessionId().isBlank()) {
       throw new IllegalStateException("Incident has no sessionId");
@@ -170,11 +185,11 @@ public class IncidentService {
     Path workspace = prepareWorkspaceOrThrow(incident);
     try {
       FixResult result = applyFix(incident.getSessionId(), workspace);
-      incident.setStatus(IncidentStatus.FIXED);
+      transitionOrThrow(incident, IncidentStatus.FIXED);
       incidentRepository.save(incident);
       return result;
     } catch (RuntimeException e) {
-      failIncident(incident.getId());
+      resetIncidentStatus(incident.getId(), IncidentStatus.PENDING_REVIEW);
       throw e;
     }
   }
@@ -193,13 +208,38 @@ public class IncidentService {
       incident.setAppId(report.appId());
       incident.setRepoUrl(report.repoUrl());
       incident.setBranch(report.branch());
+      if (incident.getStatus() == null) {
+        incident.setStatus(IncidentStatus.OPEN);
+      } else if (incident.getStatus() == IncidentStatus.FIXED) {
+        transitionOrThrow(incident, IncidentStatus.REGRESSION);
+        notifyWebhook(incident, report);
+      }
       return incident;
     }
 
-    IncidentEntity created = new IncidentEntity(incidentId, report.appId(), IncidentStatus.WAITING);
+    IncidentEntity created = new IncidentEntity(incidentId, report.appId(), IncidentStatus.OPEN);
     created.setRepoUrl(report.repoUrl());
     created.setBranch(report.branch());
     return created;
+  }
+
+  private void notifyWebhook(IncidentEntity incident, IncidentReport report) {
+    if (webhookService == null || incident == null || report == null) {
+      return;
+    }
+    try {
+      WebhookPayload payload =
+          new WebhookPayload(
+              incident.getAppId(),
+              incident.getId(),
+              incident.getStatus(),
+              report.errorType(),
+              report.errorMessage(),
+              report.occurredAt());
+      webhookService.notifyIncident(payload);
+    } catch (Exception e) {
+      log.warn("Webhook notification failed for incident {}", incident.getId(), e);
+    }
   }
 
   private IncidentEntity loadIncidentOrThrow(String incidentId) {
@@ -227,8 +267,8 @@ public class IncidentService {
   private void transitionOrThrow(IncidentEntity incident, IncidentStatus target) {
     IncidentStatus current = incident.getStatus();
     if (current == null) {
-      incident.setStatus(IncidentStatus.WAITING);
-      current = IncidentStatus.WAITING;
+      incident.setStatus(IncidentStatus.OPEN);
+      current = IncidentStatus.OPEN;
     }
     if (!current.canTransitionTo(target)) {
       throw new IllegalStateException("Invalid transition: " + current + " -> " + target);
@@ -236,11 +276,11 @@ public class IncidentService {
     incident.setStatus(target);
   }
 
-  private void failIncident(String incidentId) {
+  private void resetIncidentStatus(String incidentId, IncidentStatus fallbackStatus) {
     try {
       IncidentEntity incident = loadIncidentOrThrow(incidentId);
-      if (incident.getStatus() != IncidentStatus.FAILED) {
-        incident.setStatus(IncidentStatus.FAILED);
+      if (fallbackStatus != null && incident.getStatus() != fallbackStatus) {
+        incident.setStatus(fallbackStatus);
         incidentRepository.save(incident);
       }
     } catch (Exception ignored) {
@@ -286,6 +326,12 @@ public class IncidentService {
     map.put("fixProposal", incident.getFixProposal());
     map.put("createdAt", incident.getCreatedAt());
     map.put("updatedAt", incident.getUpdatedAt());
+    map.put("statusChangedAt", incident.getStatusChangedAt());
+    map.put("fingerprintId", incident.getFingerprintId());
+    if (incident.getFingerprintId() != null) {
+      fingerprintService.findByFingerprint(incident.getFingerprintId())
+          .ifPresent(fp -> map.put("occurrenceCount", fp.getOccurrenceCount()));
+    }
     return map;
   }
 
@@ -597,12 +643,9 @@ public class IncidentService {
     IncidentEntity incident = incidentRepository.findById(incidentId)
         .orElseThrow(() -> new IllegalArgumentException("Incident not found: " + incidentId));
 
-    if (incident.getStatus() != IncidentStatus.ANALYZED) {
-      throw new IllegalStateException("Incident must be in ANALYZED status");
+    if (incident.getStatus() != IncidentStatus.PENDING_REVIEW) {
+      throw new IllegalStateException("Incident must be in PENDING_REVIEW status");
     }
-
-    incident.setStatus(IncidentStatus.FIXING);
-    incidentRepository.save(incident);
 
     try {
       Path sourceCodePath = gitManager.prepareWorkspace(
@@ -691,11 +734,11 @@ public class IncidentService {
 
       if (fixSuccessful) {
         commitAndPushFixIfPossible(incident, sourceCodePath);
-        incident.setStatus(IncidentStatus.AI_FIXED);
+        incident.setStatus(IncidentStatus.FIXED);
         incident.setFixProposal("AI修复完成\n\n" + rawOutput);
         log.info("✓ Fix completed successfully for incident: {}", incidentId);
       } else {
-        incident.setStatus(IncidentStatus.FAILED);
+        incident.setStatus(IncidentStatus.PENDING_REVIEW);
         incident.setFixProposal("AI修复失败\n\n" + rawOutput);
         log.error("✗ Fix failed for incident: {}", incidentId);
       }
@@ -705,7 +748,7 @@ public class IncidentService {
 
     } catch (Exception e) {
       log.error("Fix failed for incident: {}", incidentId, e);
-      incident.setStatus(IncidentStatus.FAILED);
+      incident.setStatus(IncidentStatus.PENDING_REVIEW);
       incidentRepository.save(incident);
     }
   }
@@ -716,11 +759,11 @@ public class IncidentService {
     IncidentEntity incident = incidentRepository.findById(incidentId)
         .orElseThrow(() -> new IllegalArgumentException("Incident not found: " + incidentId));
 
-    if (incident.getStatus() != IncidentStatus.ANALYZED) {
-      throw new IllegalStateException("Incident must be in ANALYZED status");
+    if (incident.getStatus() != IncidentStatus.PENDING_REVIEW) {
+      throw new IllegalStateException("Incident must be in PENDING_REVIEW status");
     }
 
-    incident.setStatus(IncidentStatus.NO_ACTION_NEEDED);
+    transitionOrThrow(incident, IncidentStatus.IGNORED);
     incidentRepository.save(incident);
   }
 }

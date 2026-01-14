@@ -47,7 +47,25 @@
       "Bash(cmd.exe /c \"set JAVA_HOME=C:\\\\Program Files\\\\Java\\\\jdk-21 && set PATH=%JAVA_HOME%\\\\bin;%PATH% && mvn clean install -DskipTests\")",
       "Bash(powershell.exe -Command:*)",
       "Bash(./build.bat)",
-      "Bash(jar:*)"
+      "Bash(jar:*)",
+      "Bash(git check-ignore:*)",
+      "Bash(git restore:*)",
+      "Bash(mvn -pl healflow-platform clean compile:*)",
+      "Bash(mvn -pl healflow-common clean install:*)",
+      "Bash(mvn -pl healflow-platform test:*)",
+      "Bash(mvn -pl healflow-platform clean test:*)",
+      "Bash(set JAVA_HOME=C:Program FilesJavajdk-21)",
+      "Bash(set PATH=%JAVA_HOME%bin)",
+      "Bash(%PATH%)",
+      "Bash(\"C:\\\\Program Files\\\\Java\\\\jdk-21\\\\bin\\\\java.exe\" -version)",
+      "Bash(\"C:\\\\Program Files\\\\Common Files\\\\Oracle\\\\Java\\\\javapath\\\\java.exe\" -version)",
+      "Bash(set:*)",
+      "Bash(\"C:\\\\Program Files\\\\Java\\\\jdk-21\\\\bin\\\\javac.exe\" -version)",
+      "Bash(\"E:\\\\mine\\\\healflow\\\\run-test.bat\")",
+      "Bash(\"E:\\\\mine\\\\healflow\\\\run-platform.bat\")",
+      "Bash(timeout:*)",
+      "Bash(taskkill:*)",
+      "Bash(netstat:*)"
     ]
   }
 }

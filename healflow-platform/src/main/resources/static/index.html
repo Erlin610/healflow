@@ -3,488 +3,416 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>HealFlow - Incident 管理</title>
+    <title>HealFlow 控制台</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        brand: { 50: '#eff6ff', 100: '#dbeafe', 500: '#3b82f6', 600: '#2563EB', 700: '#1d4ed8' },
+                        success: '#16A34A',
+                        warning: '#D97706',
+                        danger: '#DC2626',
+                    }
+                }
+            }
+        }
+    </script>
     <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f5f5f5; }
-        .container { max-width: 1200px; margin: 0 auto; padding: 20px; }
-        h1 { color: #333; margin-bottom: 20px; }
-        .filters { background: white; padding: 15px; border-radius: 8px; margin-bottom: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
-        .filters select { padding: 8px 12px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px; }
-        .filters button { padding: 8px 16px; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; margin-left: 10px; }
-        .filters button:hover { background: #0056b3; }
-        .incident-list { background: white; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
-        .incident-item { padding: 15px; border-bottom: 1px solid #eee; cursor: pointer; transition: background 0.2s; }
-        .incident-item:hover { background: #f8f9fa; }
-        .incident-item:last-child { border-bottom: none; }
-        .incident-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
-        .incident-id { font-weight: 600; color: #333; }
-        .status-badge { padding: 4px 12px; border-radius: 12px; font-size: 12px; font-weight: 500; }
-        .status-WAITING { background: #ffc107; color: #000; }
-        .status-ANALYZING { background: #17a2b8; color: white; }
-        .status-ANALYZED { background: #28a745; color: white; }
-        .status-FIXING { background: #fd7e14; color: white; }
-        .status-FIXED { background: #20c997; color: white; }
-        .status-FAILED { background: #dc3545; color: white; }
-        .status-NO_ACTION_NEEDED { background: #6c757d; color: white; }
-        .status-AI_FIXED { background: #17a2b8; color: white; }
-        .incident-meta { font-size: 14px; color: #666; }
-        .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1000; }
-        .modal-content { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background: white; border-radius: 8px; padding: 30px; max-width: 800px; width: 90%; max-height: 90vh; overflow-y: auto; }
-        .modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
-        .modal-header h2 { color: #333; }
-        .close-btn { font-size: 28px; cursor: pointer; color: #999; }
-        .close-btn:hover { color: #333; }
-        .detail-row { margin-bottom: 15px; }
-        .detail-label { font-weight: 600; color: #666; margin-bottom: 5px; }
-        .detail-value { color: #333; word-break: break-all; }
-        .actions { margin-top: 20px; display: flex; gap: 10px; }
-        .btn { padding: 10px 20px; border: none; border-radius: 4px; cursor: pointer; font-size: 14px; font-weight: 500; }
-        .btn-primary { background: #007bff; color: white; }
-        .btn-primary:hover { background: #0056b3; }
-        .btn-success { background: #28a745; color: white; }
-        .btn-success:hover { background: #218838; }
-        .btn-warning { background: #ffc107; color: #000; }
-        .btn-warning:hover { background: #e0a800; }
-        .btn:disabled { opacity: 0.5; cursor: not-allowed; }
-        .loading { text-align: center; padding: 40px; color: #666; }
-        .empty { text-align: center; padding: 40px; color: #999; }
-        pre { background: #f8f9fa; padding: 10px; border-radius: 4px; overflow-x: auto; font-size: 12px; }
-        .question-section { margin: 20px 0; padding: 15px; background: #f8f9fa; border-radius: 4px; }
-        .question-header { font-weight: 600; color: #333; margin-bottom: 10px; }
-        .question-options { margin-top: 10px; }
-        .option-item { margin: 8px 0; padding: 10px; background: white; border: 2px solid #ddd; border-radius: 4px; cursor: pointer; }
-        .option-item:hover { border-color: #007bff; }
-        .option-item.selected { border-color: #007bff; background: #e7f3ff; }
-        .option-label { font-weight: 500; color: #333; }
-        .option-description { font-size: 13px; color: #666; margin-top: 4px; }
-        .analysis-field { margin-bottom: 15px; }
-        .analysis-label { font-weight: 600; color: #666; margin-bottom: 5px; }
-        .analysis-value { color: #333; }
+        body { background-color: #F3F4F6; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
+        .grid-dashboard { grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); }
     </style>
 </head>
-<body>
-    <div class="container">
-        <h1>🏥 HealFlow - Incident 管理</h1>
+<body class="h-screen flex flex-col overflow-hidden">
 
-        <div class="filters">
-            <label>状态筛选：</label>
-            <select id="statusFilter">
-                <option value="">全部</option>
-                <option value="WAITING">WAITING</option>
-                <option value="ANALYZING">ANALYZING</option>
-                <option value="ANALYZED">ANALYZED</option>
-                <option value="FIXING">FIXING</option>
-                <option value="AI_FIXED">AI_FIXED</option>
-                <option value="FIXED">FIXED</option>
-                <option value="FAILED">FAILED</option>
-                <option value="NO_ACTION_NEEDED">NO_ACTION_NEEDED</option>
-            </select>
-            <button onclick="loadIncidents()">刷新</button>
+    <header class="bg-white border-b border-gray-200 h-14 flex items-center px-6 justify-between flex-shrink-0">
+        <div class="flex items-center gap-3">
+            <div class="w-8 h-8 bg-brand-600 rounded flex items-center justify-center text-white font-bold">HF</div>
+            <h1 class="font-semibold text-gray-900">HealFlow 控制台</h1>
         </div>
+        <span class="text-sm text-gray-500" id="clock"></span>
+    </header>
 
-        <div class="incident-list" id="incidentList">
-            <div class="loading">加载中...</div>
-        </div>
-    </div>
+    <div class="flex flex-1 overflow-hidden">
+        <nav class="w-16 bg-white border-r border-gray-200 flex flex-col items-center py-4 gap-6 flex-shrink-0">
+            <button id="nav-dashboard" class="p-2 rounded-lg text-brand-600 bg-brand-50" title="Apps">
+                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z"></path></svg>
+            </button>
+            <button id="nav-incidents" class="p-2 rounded-lg text-gray-500 hover:bg-gray-50" title="Incidents">
+                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
+            </button>
+        </nav>
 
-    <div class="modal" id="detailModal">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h2>Incident 详情</h2>
-                <span class="close-btn" onclick="closeModal()">&times;</span>
-            </div>
-            <div id="detailContent"></div>
-        </div>
-    </div>
-
-    <script>
-        let currentIncident = null;
-        let userAnswers = {};
-
-        async function loadIncidents() {
-            const status = document.getElementById('statusFilter').value;
-            const url = status ? `/api/v1/incidents?status=${status}` : '/api/v1/incidents';
-
-            try {
-                const response = await fetch(url);
-                const incidents = await response.json();
-                renderIncidents(incidents);
-            } catch (error) {
-                document.getElementById('incidentList').innerHTML = '<div class="empty">加载失败</div>';
-            }
-        }
-
-        function renderIncidents(incidents) {
-            const container = document.getElementById('incidentList');
-
-            if (incidents.length === 0) {
-                container.innerHTML = '<div class="empty">暂无 Incident</div>';
-                return;
-            }
-
-            container.innerHTML = incidents.map(inc => `
-                <div class="incident-item" onclick="showDetail('${inc.id}')">
-                    <div class="incident-header">
-                        <span class="incident-id">${inc.id}</span>
-                        <span class="status-badge status-${inc.status}">${inc.status}</span>
+        <main class="flex-1 overflow-auto bg-gray-50 p-6 relative">
+            <div id="view-dashboard" class="space-y-6">
+                <div class="grid grid-cols-3 gap-4">
+                    <div class="bg-white p-4 rounded-md border border-gray-200 shadow-sm">
+                        <div class="text-sm text-gray-500">应用总数</div>
+                        <div class="text-2xl font-semibold text-gray-900 mt-1" id="stat-total-apps">-</div>
                     </div>
-                    <div class="incident-meta">
-                        <strong>App:</strong> ${inc.appId} |
-                        <strong>错误类型:</strong> ${inc.errorType || '-'} |
-                        <strong>错误信息:</strong> ${(inc.errorMessage || '-').substring(0, 50)}${(inc.errorMessage || '').length > 50 ? '...' : ''} |
-                        <strong>创建时间:</strong> ${new Date(inc.createdAt).toLocaleString('zh-CN')}
+                    <div class="bg-white p-4 rounded-md border border-gray-200 shadow-sm">
+                        <div class="text-sm text-gray-500">活跃异常</div>
+                        <div class="text-2xl font-semibold text-danger mt-1" id="stat-active-incidents">-</div>
+                    </div>
+                    <div class="bg-white p-4 rounded-md border border-gray-200 shadow-sm flex items-center justify-between cursor-pointer hover:bg-gray-50" id="btn-new-app">
+                        <div class="text-brand-600 font-medium">+ 新建应用</div>
                     </div>
                 </div>
-            `).join('');
-        }
+                <h2 class="text-lg font-medium text-gray-900">监控中的应用</h2>
+                <div class="grid grid-dashboard gap-6" id="app-grid">
+                    <div class="col-span-full text-center py-10 text-gray-400">Loading...</div>
+                </div>
+            </div>
 
-        async function showDetail(incidentId) {
-            try {
-                const response = await fetch(`/api/v1/incidents/${incidentId}`);
-                currentIncident = await response.json();
-                renderDetail(currentIncident);
-                document.getElementById('detailModal').style.display = 'block';
-            } catch (error) {
-                alert('加载详情失败');
-            }
-        }
+            <div id="view-incidents" class="hidden space-y-4">
+                <div class="flex justify-between items-center mb-2">
+                    <h2 class="text-lg font-medium text-gray-900">异常控制台</h2>
+                    <div class="flex gap-2">
+                        <select id="filter-status" class="text-sm border-gray-300 rounded-md px-3 py-1.5">
+                            <option value="">全部状态</option>
+                            <option value="OPEN">待处理</option>
+                            <option value="ANALYZING">分析中</option>
+                            <option value="PENDING_REVIEW">待审核</option>
+                            <option value="FIXED">已修复</option>
+                        </select>
+                        <button id="btn-refresh" class="p-1.5 text-gray-500 hover:text-brand-600 bg-white border border-gray-300 rounded">刷新</button>
+                    </div>
+                </div>
+                <div class="bg-white border border-gray-200 rounded-lg shadow-sm overflow-hidden">
+                    <div class="grid grid-cols-12 gap-4 px-6 py-3 bg-gray-50 border-b text-xs font-semibold text-gray-500 uppercase">
+                        <div class="col-span-1">状态</div>
+                        <div class="col-span-2">指纹</div>
+                        <div class="col-span-4">错误类型 / 消息</div>
+                        <div class="col-span-2">应用</div>
+                        <div class="col-span-2">时间</div>
+                        <div class="col-span-1 text-right">操作</div>
+                    </div>
+                    <div id="incident-list-body" class="divide-y divide-gray-100"></div>
+                </div>
+            </div>
 
-        function renderDetail(inc) {
-            userAnswers = {};
-            const actions = getAvailableActions(inc.status);
-
-            let analysisHtml = '';
-            let questionsHtml = '';
-
-            if (inc.analysisResult) {
-                try {
-                    const analysis = JSON.parse(inc.analysisResult);
-                    analysisHtml = `
-                        <div class="detail-row">
-                            <div class="detail-label">AI 分析结果</div>
-                            <div class="detail-value">
-                                <div class="analysis-field">
-                                    <div class="analysis-label">错误类型</div>
-                                    <div class="analysis-value">${analysis.bug_type || '-'}</div>
-                                </div>
-                                <div class="analysis-field">
-                                    <div class="analysis-label">严重程度</div>
-                                    <div class="analysis-value">${analysis.severity || '-'}</div>
-                                </div>
-                                <div class="analysis-field">
-                                    <div class="analysis-label">根本原因</div>
-                                    <div class="analysis-value">${analysis.root_cause || '-'}</div>
-                                </div>
-                                <div class="analysis-field">
-                                    <div class="analysis-label">影响文件</div>
-                                    <div class="analysis-value">${(analysis.affected_files || []).join(', ') || '-'}</div>
-                                </div>
-                                <div class="analysis-field">
-                                    <div class="analysis-label">详细分析</div>
-                                    <div class="analysis-value">${analysis.analysis || '-'}</div>
-                                </div>
-                                <div class="analysis-field">
-                                    <div class="analysis-label">置信度</div>
-                                    <div class="analysis-value">${(analysis.confidence * 100).toFixed(0)}%</div>
-                                </div>
+            <div id="view-workbench" class="hidden absolute inset-0 bg-white z-20 flex flex-col">
+                <div class="h-16 border-b border-gray-200 px-6 flex items-center justify-between bg-white flex-shrink-0">
+                    <div class="flex items-center gap-4">
+                        <button id="btn-back" class="text-gray-400 hover:text-gray-700">&larr; 返回</button>
+                        <div>
+                            <div class="text-sm text-gray-500"><span id="wb-id">-</span> / <span id="wb-fingerprint">-</span></div>
+                            <div class="font-medium text-gray-900" id="wb-title">-</div>
+                        </div>
+                    </div>
+                    <div class="flex gap-3" id="wb-actions"></div>
+                </div>
+                <div class="flex flex-1 overflow-hidden">
+                    <div class="w-64 bg-gray-50 border-r border-gray-200 p-4 overflow-y-auto text-sm flex-shrink-0">
+                        <h3 class="font-semibold text-gray-900 mb-3">上下文</h3>
+                        <div class="space-y-3">
+                            <div><div class="text-xs text-gray-500 uppercase mb-1">应用</div><div class="font-medium" id="wb-app">-</div></div>
+                            <div><div class="text-xs text-gray-500 uppercase mb-1">分支</div><div id="wb-branch">-</div></div>
+                            <div><div class="text-xs text-gray-500 uppercase mb-1">提交</div><div class="font-mono text-xs" id="wb-commit">-</div></div>
+                            <div><div class="text-xs text-gray-500 uppercase mb-1">时间</div><div id="wb-time">-</div></div>
+                        </div>
+                    </div>
+                    <div class="flex-1 flex flex-col min-w-0 bg-white">
+                        <div class="border-b border-gray-200 flex px-4">
+                            <button class="tab-btn px-4 py-3 text-sm font-medium border-b-2 border-brand-600 text-brand-600" data-tab="stack">堆栈跟踪</button>
+                            <button class="tab-btn px-4 py-3 text-sm font-medium border-b-2 border-transparent text-gray-500" data-tab="analysis">AI 分析</button>
+                            <button class="tab-btn px-4 py-3 text-sm font-medium border-b-2 border-transparent text-gray-500" data-tab="fix">修复方案</button>
+                        </div>
+                        <div class="flex-1 overflow-auto p-4">
+                            <div id="content-stack" class="font-mono text-xs bg-gray-900 text-gray-300 p-4 rounded h-full overflow-auto whitespace-pre"></div>
+                            <div id="content-analysis" class="hidden p-4"></div>
+                            <div id="content-fix" class="hidden">
+                                <div class="bg-yellow-50 border border-yellow-200 rounded p-3 mb-4 text-sm text-yellow-800">请仔细审查以下变更内容。</div>
+                                <div id="fix-diff-viewer" class="border border-gray-200 rounded bg-gray-50 font-mono text-xs overflow-auto p-4 whitespace-pre"></div>
                             </div>
                         </div>
-                    `;
-
-                    if (analysis.questions && analysis.questions.length > 0) {
-                        questionsHtml = '<div class="detail-row"><div class="detail-label">需要确认的问题</div><div class="detail-value">';
-                        analysis.questions.forEach((q, idx) => {
-                            questionsHtml += `
-                                <div class="question-section">
-                                    <div class="question-header">${q.header}: ${q.question}</div>
-                                    <div class="question-options">
-                                        ${q.options.map((opt, optIdx) => `
-                                            <div class="option-item" onclick="selectOption(${idx}, '${opt.label}', ${q.multiSelect})">
-                                                <div class="option-label">${q.multiSelect ? '☐' : '○'} ${opt.label}</div>
-                                                <div class="option-description">${opt.description}</div>
-                                            </div>
-                                        `).join('')}
-                                    </div>
-                                </div>
-                            `;
-                        });
-                        questionsHtml += '</div></div>';
-                    }
-                } catch (e) {
-                    analysisHtml = `
-                        <div class="detail-row">
-                            <div class="detail-label">分析结果</div>
-                            <div class="detail-value"><pre>${inc.analysisResult}</pre></div>
-                        </div>
-                    `;
-                }
-            }
-
-            document.getElementById('detailContent').innerHTML = `
-                <div class="detail-row">
-                    <div class="detail-label">Incident ID</div>
-                    <div class="detail-value">${inc.id}</div>
-                </div>
-                <div class="detail-row">
-                    <div class="detail-label">应用 ID</div>
-                    <div class="detail-value">${inc.appId}</div>
-                </div>
-                <div class="detail-row">
-                    <div class="detail-label">状态</div>
-                    <div class="detail-value"><span class="status-badge status-${inc.status}">${inc.status}</span></div>
-                </div>
-                <div class="detail-row">
-                    <div class="detail-label">仓库 URL</div>
-                    <div class="detail-value">${inc.repoUrl || '-'}</div>
-                </div>
-                <div class="detail-row">
-                    <div class="detail-label">分支</div>
-                    <div class="detail-value">${inc.branch || '-'}</div>
-                </div>
-                <div class="detail-row">
-                    <div class="detail-label">Session ID</div>
-                    <div class="detail-value">${inc.sessionId || '-'}</div>
-                </div>
-                ${inc.errorType || inc.errorMessage || inc.stackTrace ? `
-                <div class="detail-row">
-                    <div class="detail-label">错误类型</div>
-                    <div class="detail-value">${inc.errorType || '-'}</div>
-                </div>
-                <div class="detail-row">
-                    <div class="detail-label">错误信息</div>
-                    <div class="detail-value">${inc.errorMessage || '-'}</div>
-                </div>
-                <div class="detail-row">
-                    <div class="detail-label">堆栈跟踪</div>
-                    <div class="detail-value"><pre style="max-height: 300px; overflow-y: auto; font-size: 12px;">${inc.stackTrace || '-'}</pre></div>
-                </div>
-                ` : ''}
-                ${analysisHtml}
-                ${questionsHtml}
-                ${questionsHtml ? `
-                <div class="detail-row">
-                    <div class="detail-label">补充信息（可选）</div>
-                    <div class="detail-value">
-                        <textarea id="additionalInfo" style="width: 100%; min-height: 80px; padding: 8px; border: 1px solid #ddd; border-radius: 4px; font-family: inherit;" placeholder="请输入任何额外的上下文信息或特殊要求..."></textarea>
+                    </div>
+                    <div class="w-72 border-l border-gray-200 bg-white flex flex-col flex-shrink-0">
+                        <div class="p-3 border-b border-gray-200 font-semibold text-gray-900 text-sm">活动日志</div>
+                        <div class="flex-1 overflow-y-auto p-4 space-y-3" id="wb-timeline"></div>
                     </div>
                 </div>
-                ` : ''}
-                ${inc.fixProposal ? `
-                <div class="detail-row">
-                    <div class="detail-label">修复方案</div>
-                    <div class="detail-value"><pre>${inc.fixProposal}</pre></div>
+            </div>
+        </main>
+    </div>
+
+    <div id="app-modal" class="hidden fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center">
+        <div class="bg-white rounded-lg shadow-xl w-full max-w-lg">
+            <div class="px-6 py-4 border-b border-gray-200 flex justify-between items-center bg-gray-50">
+                <h3 class="text-lg font-medium text-gray-900">新建应用</h3>
+                <button id="btn-close-modal" class="text-gray-400 hover:text-gray-500 text-2xl">&times;</button>
+            </div>
+            <form id="app-form" class="p-6 space-y-4">
+                <div><label class="block text-sm font-medium text-gray-700 mb-1">应用名称</label><input type="text" name="appName" id="form-appName" required class="w-full border border-gray-300 rounded-md py-2 px-3 text-sm"></div>
+                <div class="grid grid-cols-2 gap-4">
+                    <div><label class="block text-sm font-medium text-gray-700 mb-1">Git 仓库地址</label><input type="text" name="gitUrl" id="form-gitUrl" class="w-full border border-gray-300 rounded-md py-2 px-3 text-sm"></div>
+                    <div><label class="block text-sm font-medium text-gray-700 mb-1">分支</label><input type="text" name="gitBranch" id="form-gitBranch" placeholder="main" class="w-full border border-gray-300 rounded-md py-2 px-3 text-sm"></div>
                 </div>
-                ` : ''}
-                <div class="detail-row">
-                    <div class="detail-label">创建时间</div>
-                    <div class="detail-value">${new Date(inc.createdAt).toLocaleString('zh-CN')}</div>
+                <div><label class="block text-sm font-medium text-gray-700 mb-1">Git Token</label><input type="password" name="gitToken" id="form-gitToken" class="w-full border border-gray-300 rounded-md py-2 px-3 text-sm"></div>
+                <div><label class="block text-sm font-medium text-gray-700 mb-1">AI API Key</label><input type="password" name="aiApiKey" id="form-aiApiKey" class="w-full border border-gray-300 rounded-md py-2 px-3 text-sm"></div>
+                <div class="flex gap-4">
+                    <label class="flex items-center"><input type="checkbox" id="form-autoAnalyze" class="mr-2">自动分析</label>
+                    <label class="flex items-center"><input type="checkbox" id="form-autoFix" class="mr-2">自动修复</label>
                 </div>
-                <div class="detail-row">
-                    <div class="detail-label">更新时间</div>
-                    <div class="detail-value">${new Date(inc.updatedAt).toLocaleString('zh-CN')}</div>
+                <div class="pt-4 flex justify-end gap-3">
+                    <button type="button" id="btn-cancel-modal" class="px-4 py-2 border border-gray-300 rounded-md text-sm text-gray-700 bg-white hover:bg-gray-50">取消</button>
+                    <button type="submit" class="px-4 py-2 rounded-md text-sm text-white bg-brand-600 hover:bg-brand-700">保存</button>
                 </div>
-                <div class="actions">
-                    ${actions}
-                </div>
-            `;
+            </form>
+        </div>
+    </div>
+
+<script>
+(function() {
+    var currentIncident = null;
+
+    document.addEventListener('DOMContentLoaded', init);
+
+    function init() {
+        updateClock();
+        setInterval(updateClock, 60000);
+        loadDashboard();
+        bindEvents();
+    }
+
+    function updateClock() {
+        var el = document.getElementById('clock');
+        if (el) el.textContent = new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+    }
+
+    function bindEvents() {
+        document.getElementById('nav-dashboard').addEventListener('click', function() { switchView('dashboard'); });
+        document.getElementById('nav-incidents').addEventListener('click', function() { switchView('incidents'); });
+        document.getElementById('btn-new-app').addEventListener('click', openAppModal);
+        document.getElementById('btn-close-modal').addEventListener('click', closeAppModal);
+        document.getElementById('btn-cancel-modal').addEventListener('click', closeAppModal);
+        document.getElementById('app-form').addEventListener('submit', saveApp);
+        document.getElementById('filter-status').addEventListener('change', loadIncidents);
+        document.getElementById('btn-refresh').addEventListener('click', loadIncidents);
+        document.getElementById('btn-back').addEventListener('click', function() { switchView('incidents'); });
+        
+        document.querySelectorAll('.tab-btn').forEach(function(btn) {
+            btn.addEventListener('click', function() { switchTab(btn.dataset.tab); });
+        });
+    }
+
+    function switchView(view) {
+        document.getElementById('view-dashboard').classList.add('hidden');
+        document.getElementById('view-incidents').classList.add('hidden');
+        document.getElementById('view-workbench').classList.add('hidden');
+        
+        document.getElementById('nav-dashboard').classList.remove('bg-brand-50', 'text-brand-600');
+        document.getElementById('nav-dashboard').classList.add('text-gray-500');
+        document.getElementById('nav-incidents').classList.remove('bg-brand-50', 'text-brand-600');
+        document.getElementById('nav-incidents').classList.add('text-gray-500');
+
+        if (view === 'dashboard') {
+            document.getElementById('nav-dashboard').classList.add('bg-brand-50', 'text-brand-600');
+            document.getElementById('nav-dashboard').classList.remove('text-gray-500');
+            loadDashboard();
+        } else if (view === 'incidents') {
+            document.getElementById('nav-incidents').classList.add('bg-brand-50', 'text-brand-600');
+            document.getElementById('nav-incidents').classList.remove('text-gray-500');
+            loadIncidents();
+        } else if (view === 'workbench') {
+            document.getElementById('nav-incidents').classList.add('bg-brand-50', 'text-brand-600');
+            document.getElementById('nav-incidents').classList.remove('text-gray-500');
         }
+        document.getElementById('view-' + view).classList.remove('hidden');
+    }
 
-        function selectOption(questionIdx, label, multiSelect) {
-            if (!userAnswers[questionIdx]) {
-                userAnswers[questionIdx] = [];
+    function switchTab(tab) {
+        document.querySelectorAll('.tab-btn').forEach(function(btn) {
+            btn.classList.remove('border-brand-600', 'text-brand-600');
+            btn.classList.add('border-transparent', 'text-gray-500');
+        });
+        document.querySelector('.tab-btn[data-tab="' + tab + '"]').classList.add('border-brand-600', 'text-brand-600');
+        document.querySelector('.tab-btn[data-tab="' + tab + '"]').classList.remove('border-transparent', 'text-gray-500');
+        
+        document.getElementById('content-stack').classList.add('hidden');
+        document.getElementById('content-analysis').classList.add('hidden');
+        document.getElementById('content-fix').classList.add('hidden');
+        document.getElementById('content-' + tab).classList.remove('hidden');
+    }
+
+    function openAppModal() {
+        document.getElementById('app-modal').classList.remove('hidden');
+        document.getElementById('app-form').reset();
+    }
+
+    function closeAppModal() {
+        document.getElementById('app-modal').classList.add('hidden');
+    }
+
+    function loadDashboard() {
+        fetch('/api/v1/applications')
+            .then(function(r) { return r.json(); })
+            .then(function(apps) {
+                document.getElementById('stat-total-apps').textContent = apps.length || 0;
+                renderAppGrid(apps);
+            })
+            .catch(function(e) { console.error(e); });
+
+        fetch('/api/v1/incidents?status=OPEN')
+            .then(function(r) { return r.json(); })
+            .then(function(incidents) {
+                document.getElementById('stat-active-incidents').textContent = incidents.length || 0;
+            })
+            .catch(function(e) { console.error(e); });
+    }
+
+    function renderAppGrid(apps) {
+        var grid = document.getElementById('app-grid');
+        if (!apps || apps.length === 0) {
+            grid.innerHTML = '<div class="col-span-full text-center py-10 text-gray-400">暂无应用，点击 "+ 新建应用" 添加。</div>';
+            return;
+        }
+        grid.innerHTML = apps.map(function(app) {
+            var autoTags = '';
+            if (app.autoAnalyze) autoTags += '<span class="px-2 py-0.5 rounded text-xs bg-blue-100 text-blue-800 mr-1">Auto-Analyze</span>';
+            if (app.autoFixProposal) autoTags += '<span class="px-2 py-0.5 rounded text-xs bg-purple-100 text-purple-800">Auto-Fix</span>';
+            return '<div class="bg-white rounded-lg border border-gray-200 shadow-sm hover:shadow-md p-5 flex flex-col h-36">' +
+                '<div class="flex justify-between items-start mb-2"><div class="font-bold text-lg text-gray-900 truncate">' + app.appName + '</div><div class="w-2 h-2 rounded-full bg-success"></div></div>' +
+                '<div class="text-sm text-gray-500 mb-3 truncate">' + (app.gitUrl || 'No Git URL') + '</div>' +
+                '<div class="mt-auto flex justify-between items-center"><div>' + autoTags + '</div></div></div>';
+        }).join('');
+    }
+
+    function loadIncidents() {
+        var status = document.getElementById('filter-status').value;
+        var url = status ? '/api/v1/incidents?status=' + status : '/api/v1/incidents';
+        fetch(url)
+            .then(function(r) { return r.json(); })
+            .then(function(incidents) { renderIncidentTable(incidents); })
+            .catch(function(e) { console.error(e); });
+    }
+
+    function renderIncidentTable(incidents) {
+        var body = document.getElementById('incident-list-body');
+        if (!incidents || incidents.length === 0) {
+            body.innerHTML = '<div class="px-6 py-8 text-center text-gray-500">暂无异常记录。</div>';
+            return;
+        }
+        var statusColors = { 'OPEN': 'bg-red-100 text-red-800', 'ANALYZING': 'bg-yellow-100 text-yellow-800', 'FIXED': 'bg-green-100 text-green-800', 'PENDING_REVIEW': 'bg-blue-100 text-blue-800' };
+        body.innerHTML = incidents.map(function(inc) {
+            var color = statusColors[inc.status] || 'bg-gray-100 text-gray-800';
+            var dateStr = new Date(inc.createdAt).toLocaleString();
+            return '<div class="grid grid-cols-12 gap-4 px-6 py-4 hover:bg-gray-50 cursor-pointer items-center incident-row" data-id="' + inc.id + '">' +
+                '<div class="col-span-1"><span class="px-2 py-1 rounded-full text-xs font-semibold ' + color + '">' + inc.status + '</span></div>' +
+                '<div class="col-span-2 text-sm font-mono text-gray-600">' + (inc.fingerprintId || 'N/A') + '</div>' +
+                '<div class="col-span-4"><div class="text-sm font-medium text-danger truncate">' + (inc.errorType || 'Unknown') + '</div><div class="text-xs text-gray-500 truncate">' + (inc.errorMessage || '') + '</div></div>' +
+                '<div class="col-span-2 text-sm text-gray-600">' + inc.appId + '</div>' +
+                '<div class="col-span-2 text-xs text-gray-500">' + dateStr + '</div>' +
+                '<div class="col-span-1 text-right text-brand-600 text-sm font-medium">查看</div></div>';
+        }).join('');
+
+        body.querySelectorAll('.incident-row').forEach(function(row) {
+            row.addEventListener('click', function() { openWorkbench(row.dataset.id); });
+        });
+    }
+
+    function openWorkbench(id) {
+        switchView('workbench');
+        document.getElementById('content-stack').textContent = 'Loading...';
+        fetch('/api/v1/incidents/' + id)
+            .then(function(r) { return r.json(); })
+            .then(function(inc) {
+                currentIncident = inc;
+                renderWorkbench(inc);
+            })
+            .catch(function(e) { alert('加载失败'); });
+    }
+
+    function renderWorkbench(inc) {
+        document.getElementById('wb-id').textContent = inc.id;
+        document.getElementById('wb-fingerprint').textContent = inc.fingerprintId || 'N/A';
+        document.getElementById('wb-title').textContent = (inc.errorType || 'Error') + ': ' + (inc.errorMessage || '');
+        document.getElementById('wb-app').textContent = inc.appId;
+        document.getElementById('wb-branch').textContent = inc.branch || '-';
+        document.getElementById('wb-commit').textContent = (inc.commitId || '').substring(0, 7) || '-';
+        document.getElementById('wb-time').textContent = inc.createdAt ? new Date(inc.createdAt).toLocaleString() : '-';
+        document.getElementById('content-stack').textContent = inc.stackTrace || '暂无堆栈信息。';
+        
+        if (inc.analysisResult) {
+            try {
+                var analysis = JSON.parse(inc.analysisResult);
+                document.getElementById('content-analysis').innerHTML = '<h3 class="font-bold mb-2">根本原因</h3><p class="mb-4">' + (analysis.root_cause || '-') + '</p><h3 class="font-bold mb-2">分析详情</h3><p>' + (analysis.analysis || '-') + '</p>';
+            } catch (e) {
+                document.getElementById('content-analysis').textContent = inc.analysisResult;
             }
+        } else {
+            document.getElementById('content-analysis').textContent = '暂无分析结果。';
+        }
+        document.getElementById('fix-diff-viewer').textContent = inc.fixProposal || '暂无修复方案。';
+        renderActions(inc.status);
+        
+        var timeline = document.getElementById('wb-timeline');
+        timeline.innerHTML = '<div class="text-xs text-gray-500">' + new Date(inc.createdAt).toLocaleTimeString() + '</div><div class="text-sm">异常创建</div>';
+        if (inc.statusChangedAt) {
+            timeline.innerHTML += '<div class="mt-3 text-xs text-gray-500">' + new Date(inc.statusChangedAt).toLocaleTimeString() + '</div><div class="text-sm">状态变更: ' + inc.status + '</div>';
+        }
+        switchTab('stack');
+    }
 
-            if (multiSelect) {
-                const idx = userAnswers[questionIdx].indexOf(label);
-                if (idx > -1) {
-                    userAnswers[questionIdx].splice(idx, 1);
-                } else {
-                    userAnswers[questionIdx].push(label);
-                }
-            } else {
-                userAnswers[questionIdx] = [label];
-            }
+    function renderActions(status) {
+        var container = document.getElementById('wb-actions');
+        container.innerHTML = '';
+        if (status === 'OPEN') {
+            container.innerHTML = '<button class="action-btn bg-brand-600 hover:bg-brand-700 text-white px-4 py-2 rounded text-sm font-medium" data-action="analyze">开始分析</button>';
+        } else if (status === 'ANALYZING') {
+            container.innerHTML = '<span class="text-yellow-600 font-medium text-sm">分析中...</span>';
+        } else if (status === 'ANALYZED' || status === 'PENDING_REVIEW') {
+            container.innerHTML = '<button class="action-btn bg-white border border-gray-300 text-gray-700 hover:bg-gray-50 px-4 py-2 rounded text-sm font-medium mr-2" data-action="generate-fix">重新生成</button>' +
+                '<button class="action-btn bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded text-sm font-medium" data-action="apply-fix">批准并合并</button>';
+        }
+        container.querySelectorAll('.action-btn').forEach(function(btn) {
+            btn.addEventListener('click', function() { triggerAction(btn.dataset.action); });
+        });
+    }
 
-            // Update UI
-            const questionSection = document.querySelectorAll('.question-section')[questionIdx];
-            const options = questionSection.querySelectorAll('.option-item');
-            options.forEach((opt, idx) => {
-                const optLabel = opt.querySelector('.option-label').textContent.substring(2);
-                if (userAnswers[questionIdx].includes(optLabel)) {
-                    opt.classList.add('selected');
-                    if (multiSelect) {
-                        opt.querySelector('.option-label').textContent = '☑ ' + optLabel;
-                    } else {
-                        opt.querySelector('.option-label').textContent = '● ' + optLabel;
-                    }
-                } else {
-                    opt.classList.remove('selected');
-                    if (multiSelect) {
-                        opt.querySelector('.option-label').textContent = '☐ ' + optLabel;
-                    } else {
-                        opt.querySelector('.option-label').textContent = '○ ' + optLabel;
-                    }
-                }
+    function triggerAction(action) {
+        if (!currentIncident) return;
+        if (!confirm('确认执行 ' + action + '?')) return;
+        
+        var body = '{}';
+        if (action === 'analyze') {
+            body = JSON.stringify({
+                appId: currentIncident.appId,
+                repoUrl: currentIncident.repoUrl || '',
+                branch: currentIncident.branch || 'main',
+                errorType: currentIncident.errorType || 'Unknown',
+                errorMessage: currentIncident.errorMessage || '',
+                stackTrace: currentIncident.stackTrace || '',
+                environment: {},
+                occurredAt: currentIncident.createdAt
             });
         }
+        
+        fetch('/api/v1/incidents/' + currentIncident.id + '/' + action, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: body })
+            .then(function(r) {
+                if (r.ok) { alert('操作已触发。'); openWorkbench(currentIncident.id); }
+                else { alert('操作失败'); }
+            })
+            .catch(function(e) { console.error(e); });
+    }
 
-        function getAvailableActions(status) {
-            switch(status) {
-                case 'WAITING':
-                    return '<button class="btn btn-primary" onclick="analyzeIncident()">🔍 开始分析</button>';
-                case 'ANALYZED':
-                    return '<button class="btn btn-warning" onclick="startFix()">🔧 开始修复</button> <button class="btn" style="background: #6c757d; color: white;" onclick="markNoAction()">⊘ 无需处理</button>';
-                case 'FIXING':
-                    return '<span style="color: #fd7e14;">⏳ 修复中...</span>';
-                case 'AI_FIXED':
-                    return '<span style="color: #17a2b8;">✅ AI已修复</span>';
-                case 'FIXED':
-                    return '<span style="color: #28a745;">✅ 已修复完成</span>';
-                case 'FAILED':
-                    return '<span style="color: #dc3545;">❌ 处理失败</span>';
-                case 'NO_ACTION_NEEDED':
-                    return '<span style="color: #6c757d;">⊘ 无需处理</span>';
-                default:
-                    return '';
-            }
-        }
-
-        async function analyzeIncident() {
-            if (!currentIncident) return;
-
-            if (!confirm('确定要开始分析吗？这可能需要几分钟时间。')) return;
-
-            try {
-                const response = await fetch(`/api/v1/incidents/${currentIncident.id}/analyze`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        appId: currentIncident.appId,
-                        repoUrl: currentIncident.repoUrl,
-                        branch: currentIncident.branch,
-                        errorType: currentIncident.errorType || 'Unknown',
-                        errorMessage: currentIncident.errorMessage || 'No error message',
-                        stackTrace: currentIncident.stackTrace || ''
-                    })
-                });
-
-                if (response.ok) {
-                    alert('分析已开始，请稍后刷新查看结果');
-                    closeModal();
-                    loadIncidents();
-                } else {
-                    alert('分析失败');
-                }
-            } catch (error) {
-                alert('请求失败: ' + error.message);
-            }
-        }
-
-        async function generateFix() {
-            if (!currentIncident) return;
-
-            if (!confirm('确定要生成修复方案吗？')) return;
-
-            try {
-                const response = await fetch(`/api/v1/incidents/${currentIncident.id}/generate-fix`, {
-                    method: 'POST'
-                });
-
-                if (response.ok) {
-                    alert('修复方案生成已开始，请稍后刷新查看结果');
-                    closeModal();
-                    loadIncidents();
-                } else {
-                    alert('生成失败');
-                }
-            } catch (error) {
-                alert('请求失败: ' + error.message);
-            }
-        }
-
-        async function applyFix() {
-            if (!currentIncident) return;
-
-            if (!confirm('确定要应用修复吗？这将修改代码并运行测试。')) return;
-
-            try {
-                const response = await fetch(`/api/v1/incidents/${currentIncident.id}/apply-fix`, {
-                    method: 'POST'
-                });
-
-                if (response.ok) {
-                    alert('修复应用已开始，请稍后刷新查看结果');
-                    closeModal();
-                    loadIncidents();
-                } else {
-                    alert('应用失败');
-                }
-            } catch (error) {
-                alert('请求失败: ' + error.message);
-            }
-        }
-
-        async function startFix() {
-            if (!currentIncident) return;
-
-            if (!confirm('确定要开始修复吗？AI 将根据分析结果和您的选择进行修复。')) return;
-
-            const additionalInfoEl = document.getElementById('additionalInfo');
-            const additionalInfo = additionalInfoEl ? additionalInfoEl.value.trim() : '';
-
-            try {
-                const response = await fetch(`/api/v1/incidents/${currentIncident.id}/start-fix`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        answers: userAnswers,
-                        additionalInfo: additionalInfo
-                    })
-                });
-
-                if (response.ok) {
-                    alert('修复已开始，请稍后刷新查看结果');
-                    closeModal();
-                    loadIncidents();
-                } else {
-                    alert('修复失败');
-                }
-            } catch (error) {
-                alert('请求失败: ' + error.message);
-            }
-        }
-
-        async function markNoAction() {
-            if (!currentIncident) return;
-
-            if (!confirm('确定标记为无需处理吗？')) return;
-
-            try {
-                const response = await fetch(`/api/v1/incidents/${currentIncident.id}/no-action`, {
-                    method: 'POST'
-                });
-
-                if (response.ok) {
-                    alert('已标记为无需处理');
-                    closeModal();
-                    loadIncidents();
-                } else {
-                    alert('操作失败');
-                }
-            } catch (error) {
-                alert('请求失败: ' + error.message);
-            }
-        }
-
-        function closeModal() {
-            document.getElementById('detailModal').style.display = 'none';
-            currentIncident = null;
-        }
-
-        document.getElementById('statusFilter').addEventListener('change', loadIncidents);
-
-        loadIncidents();
-    </script>
+    function saveApp(e) {
+        e.preventDefault();
+        var data = {
+            appName: document.getElementById('form-appName').value,
+            gitUrl: document.getElementById('form-gitUrl').value,
+            gitBranch: document.getElementById('form-gitBranch').value,
+            gitToken: document.getElementById('form-gitToken').value,
+            aiApiKey: document.getElementById('form-aiApiKey').value,
+            autoAnalyze: document.getElementById('form-autoAnalyze').checked,
+            autoFixProposal: document.getElementById('form-autoFix').checked
+        };
+        fetch('/api/v1/applications', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(data) })
+            .then(function() { closeAppModal(); loadDashboard(); })
+            .catch(function(e) { alert('保存失败'); });
+    }
+})();
+</script>
 </body>
 </html>

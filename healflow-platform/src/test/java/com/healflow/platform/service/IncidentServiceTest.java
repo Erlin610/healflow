@@ -27,8 +27,8 @@ import com.healflow.engine.shell.ShellTimeoutException;
 import com.healflow.platform.controller.IncidentController;
 import com.healflow.platform.controller.ReportController;
 import com.healflow.platform.controller.ReportRequest;
+import com.healflow.common.enums.IncidentStatus;
 import com.healflow.platform.entity.IncidentEntity;
-import com.healflow.platform.entity.IncidentStatus;
 import com.healflow.platform.repository.IncidentRepository;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -49,7 +49,8 @@ import org.springframework.boot.test.mock.mockito.MockBean;
     webEnvironment = SpringBootTest.WebEnvironment.NONE,
     properties = {
       "logging.level.com.healflow.platform.service.IncidentService=OFF",
-      "healflow.sandbox.image=test-image"
+      "healflow.sandbox.image=test-image",
+      "healflow.encryption.key=test-key"
     })
 class IncidentServiceTest {
 
@@ -85,7 +86,7 @@ class IncidentServiceTest {
     var response = controller.receiveReport(report);
     assertEquals(200, response.getStatusCode().value());
     assertEquals("inc-123", response.getBody().get("incidentId"));
-    assertEquals("WAITING", response.getBody().get("status"));
+    assertEquals("OPEN", response.getBody().get("status"));
     verify(delegate).createIncident(report);
   }
 
@@ -100,8 +101,9 @@ class IncidentServiceTest {
     GitWorkspaceManager gitManager = Mockito.mock(GitWorkspaceManager.class);
     com.healflow.engine.sandbox.DockerSandboxManager dockerSandboxManager =
         Mockito.mock(com.healflow.engine.sandbox.DockerSandboxManager.class);
+    FingerprintService fingerprintService = Mockito.mock(FingerprintService.class);
     IncidentService service =
-        new IncidentService(gitManager, dockerSandboxManager, incidentRepository, "sandbox", "ai-image", "");
+        new IncidentService(gitManager, dockerSandboxManager, incidentRepository, fingerprintService, "sandbox", "ai-image", "");
 
     try {
       System.setProperty("user.home", home.toString());
@@ -151,7 +153,7 @@ class IncidentServiceTest {
       assertEquals("Analysis complete", result.fullText());
 
       IncidentEntity persisted = incidentRepository.findById("inc-mock-test").orElseThrow();
-      assertEquals(com.healflow.platform.entity.IncidentStatus.ANALYZED, persisted.getStatus());
+      assertEquals(IncidentStatus.PENDING_REVIEW, persisted.getStatus());
       assertEquals("sess-test-123", persisted.getSessionId());
       assertEquals(validClaudeJson, persisted.getAnalysisResult());
 
@@ -281,13 +283,14 @@ class IncidentServiceTest {
   }
 
   @Test
-  void persistedAnalyzeTransitionsPendingToAnalyzedAndStoresSession() {
+  void persistedAnalyzeTransitionsOpenToPendingReviewAndStoresSession() {
     incidentRepository.deleteAll();
 
     GitWorkspaceManager gitManager = Mockito.mock(GitWorkspaceManager.class);
     DockerSandboxManager dockerSandboxManager = Mockito.mock(DockerSandboxManager.class);
+    FingerprintService fingerprintService = Mockito.mock(FingerprintService.class);
     IncidentService service =
-        Mockito.spy(new IncidentService(gitManager, dockerSandboxManager, incidentRepository, "sandbox", "ai", ""));
+        Mockito.spy(new IncidentService(gitManager, dockerSandboxManager, incidentRepository, fingerprintService, "sandbox", "ai", ""));
 
     IncidentReport report =
         new IncidentReport(
@@ -300,7 +303,11 @@ class IncidentServiceTest {
             Map.of(),
             Instant.parse("2026-01-05T00:00:00Z"));
 
-    Mockito.doReturn(new AnalysisResult("sess-1", "{\"ok\":true}", "analysis"))
+    Mockito.doAnswer(invocation -> {
+          IncidentEntity inProgress = incidentRepository.findById("inc-1").orElseThrow();
+          assertEquals(IncidentStatus.ANALYZING, inProgress.getStatus());
+          return new AnalysisResult("sess-1", "{\"ok\":true}", "analysis");
+        })
         .when(service)
         .analyzeIncident(Mockito.eq(report), any(String.class));
 
@@ -308,7 +315,7 @@ class IncidentServiceTest {
     assertEquals("sess-1", result.sessionId());
 
     IncidentEntity persisted = incidentRepository.findById("inc-1").orElseThrow();
-    assertEquals(IncidentStatus.ANALYZED, persisted.getStatus());
+    assertEquals(IncidentStatus.PENDING_REVIEW, persisted.getStatus());
     assertEquals("app-1", persisted.getAppId());
     assertEquals("sess-1", persisted.getSessionId());
     assertEquals("{\"ok\":true}", persisted.getAnalysisResult());
@@ -320,15 +327,16 @@ class IncidentServiceTest {
   void persistedAnalyzeUpdatesExistingIncidentMetadata() {
     incidentRepository.deleteAll();
 
-    IncidentEntity existing = new IncidentEntity("inc-existing", "old-app", IncidentStatus.WAITING);
+    IncidentEntity existing = new IncidentEntity("inc-existing", "old-app", IncidentStatus.OPEN);
     existing.setRepoUrl("https://example.invalid/old.git");
     existing.setBranch("old");
     incidentRepository.saveAndFlush(existing);
 
     GitWorkspaceManager gitManager = Mockito.mock(GitWorkspaceManager.class);
     DockerSandboxManager dockerSandboxManager = Mockito.mock(DockerSandboxManager.class);
+    FingerprintService fingerprintService = Mockito.mock(FingerprintService.class);
     IncidentService service =
-        Mockito.spy(new IncidentService(gitManager, dockerSandboxManager, incidentRepository, "sandbox", "ai", ""));
+        Mockito.spy(new IncidentService(gitManager, dockerSandboxManager, incidentRepository, fingerprintService, "sandbox", "ai", ""));
 
     IncidentReport report =
         new IncidentReport(
@@ -351,18 +359,47 @@ class IncidentServiceTest {
     assertEquals("new-app", persisted.getAppId());
     assertEquals("https://example.invalid/new.git", persisted.getRepoUrl());
     assertEquals("main", persisted.getBranch());
-    assertEquals(IncidentStatus.ANALYZED, persisted.getStatus());
+    assertEquals(IncidentStatus.PENDING_REVIEW, persisted.getStatus());
+  }
+
+  @Test
+  void findOrCreateIncidentMarksFixedAsRegression() throws Exception {
+    incidentRepository.deleteAll();
+
+    IncidentEntity fixed = new IncidentEntity("inc-fixed", "app-1", IncidentStatus.FIXED);
+    incidentRepository.saveAndFlush(fixed);
+
+    GitWorkspaceManager gitManager = Mockito.mock(GitWorkspaceManager.class);
+    DockerSandboxManager dockerSandboxManager = Mockito.mock(DockerSandboxManager.class);
+    FingerprintService fingerprintService = Mockito.mock(FingerprintService.class);
+    IncidentService service =
+        new IncidentService(gitManager, dockerSandboxManager, incidentRepository, fingerprintService, "sandbox", "ai", "");
+
+    IncidentReport report =
+        new IncidentReport(
+            "app-1",
+            "https://example.invalid/repo.git",
+            "main",
+            "NullPointerException",
+            "boom",
+            "stack",
+            Map.of(),
+            Instant.parse("2026-01-05T00:00:00Z"));
+
+    IncidentEntity updated = invokeFindOrCreateIncident(service, "inc-fixed", report);
+    assertEquals(IncidentStatus.REGRESSION, updated.getStatus());
   }
 
   @Test
   void persistedAnalyzeRejectsInvalidTransition() {
     incidentRepository.deleteAll();
-    incidentRepository.saveAndFlush(new IncidentEntity("inc-bad", "app-1", IncidentStatus.ANALYZED));
+    incidentRepository.saveAndFlush(new IncidentEntity("inc-bad", "app-1", IncidentStatus.PENDING_REVIEW));
 
     GitWorkspaceManager gitManager = Mockito.mock(GitWorkspaceManager.class);
     DockerSandboxManager dockerSandboxManager = Mockito.mock(DockerSandboxManager.class);
+    FingerprintService fingerprintService = Mockito.mock(FingerprintService.class);
     IncidentService service =
-        new IncidentService(gitManager, dockerSandboxManager, incidentRepository, "sandbox", "ai", "");
+        new IncidentService(gitManager, dockerSandboxManager, incidentRepository, fingerprintService, "sandbox", "ai", "");
 
     IncidentReport report =
         new IncidentReport(
@@ -384,8 +421,9 @@ class IncidentServiceTest {
 
     GitWorkspaceManager gitManager = Mockito.mock(GitWorkspaceManager.class);
     DockerSandboxManager dockerSandboxManager = Mockito.mock(DockerSandboxManager.class);
+    FingerprintService fingerprintService = Mockito.mock(FingerprintService.class);
     IncidentService service =
-        new IncidentService(gitManager, dockerSandboxManager, incidentRepository, "sandbox", "ai", "");
+        new IncidentService(gitManager, dockerSandboxManager, incidentRepository, fingerprintService, "sandbox", "ai", "");
 
     IncidentReport report =
         new IncidentReport(
@@ -409,8 +447,9 @@ class IncidentServiceTest {
 
     GitWorkspaceManager gitManager = Mockito.mock(GitWorkspaceManager.class);
     DockerSandboxManager dockerSandboxManager = Mockito.mock(DockerSandboxManager.class);
+    FingerprintService fingerprintService = Mockito.mock(FingerprintService.class);
     IncidentService service =
-        new IncidentService(gitManager, dockerSandboxManager, incidentRepository, "sandbox", "ai", "");
+        new IncidentService(gitManager, dockerSandboxManager, incidentRepository, fingerprintService, "sandbox", "ai", "");
 
     assertThrows(IllegalArgumentException.class, () -> service.generateFix("missing"));
   }
@@ -421,8 +460,9 @@ class IncidentServiceTest {
 
     GitWorkspaceManager gitManager = Mockito.mock(GitWorkspaceManager.class);
     DockerSandboxManager dockerSandboxManager = Mockito.mock(DockerSandboxManager.class);
+    FingerprintService fingerprintService = Mockito.mock(FingerprintService.class);
     IncidentService service =
-        Mockito.spy(new IncidentService(gitManager, dockerSandboxManager, incidentRepository, "sandbox", "ai", ""));
+        Mockito.spy(new IncidentService(gitManager, dockerSandboxManager, incidentRepository, fingerprintService, "sandbox", "ai", ""));
 
     IncidentReport report =
         new IncidentReport(
@@ -439,14 +479,14 @@ class IncidentServiceTest {
     assertThrows(RuntimeException.class, () -> service.analyzeIncident("inc-fail", report));
 
     IncidentEntity persisted = incidentRepository.findById("inc-fail").orElseThrow();
-    assertEquals(IncidentStatus.FAILED, persisted.getStatus());
+    assertEquals(IncidentStatus.OPEN, persisted.getStatus());
   }
 
   @Test
-  void persistedGenerateFixAndApplyFixAdvanceState() {
+  void persistedGenerateFixAndApplyFixUpdatesProposalAndFixesIncident() {
     incidentRepository.deleteAll();
 
-    IncidentEntity incident = new IncidentEntity("inc-2", "app-2", IncidentStatus.ANALYZED);
+    IncidentEntity incident = new IncidentEntity("inc-2", "app-2", IncidentStatus.PENDING_REVIEW);
     incident.setRepoUrl("https://example.invalid/repo.git");
     incident.setBranch("main");
     incident.setSessionId("sess-2");
@@ -454,8 +494,9 @@ class IncidentServiceTest {
 
     GitWorkspaceManager gitManager = Mockito.mock(GitWorkspaceManager.class);
     DockerSandboxManager dockerSandboxManager = Mockito.mock(DockerSandboxManager.class);
+    FingerprintService fingerprintService = Mockito.mock(FingerprintService.class);
     IncidentService service =
-        Mockito.spy(new IncidentService(gitManager, dockerSandboxManager, incidentRepository, "sandbox", "ai", ""));
+        Mockito.spy(new IncidentService(gitManager, dockerSandboxManager, incidentRepository, fingerprintService, "sandbox", "ai", ""));
 
     Path workspace = Path.of("build-scratch/workspace");
     Mockito.when(gitManager.prepareWorkspace("app-2", "https://example.invalid/repo.git", "main"))
@@ -469,7 +510,7 @@ class IncidentServiceTest {
     assertEquals("sess-2", proposal.sessionId());
 
     IncidentEntity afterFixProposal = incidentRepository.findById("inc-2").orElseThrow();
-    assertEquals(IncidentStatus.FIXING, afterFixProposal.getStatus());
+    assertEquals(IncidentStatus.PENDING_REVIEW, afterFixProposal.getStatus());
     assertEquals("{\"fix\":true}", afterFixProposal.getFixProposal());
 
     Mockito.doReturn(new FixResult("APPLIED", "{\"usage\":1}"))
@@ -484,10 +525,10 @@ class IncidentServiceTest {
   }
 
   @Test
-  void persistedGenerateFixMarksIncidentFailedWhenDelegateThrows() {
+  void persistedGenerateFixKeepsPendingReviewWhenDelegateThrows() {
     incidentRepository.deleteAll();
 
-    IncidentEntity incident = new IncidentEntity("inc-fix-fail", "app-2", IncidentStatus.ANALYZED);
+    IncidentEntity incident = new IncidentEntity("inc-fix-fail", "app-2", IncidentStatus.PENDING_REVIEW);
     incident.setRepoUrl("https://example.invalid/repo.git");
     incident.setBranch("main");
     incident.setSessionId("sess-2");
@@ -495,8 +536,9 @@ class IncidentServiceTest {
 
     GitWorkspaceManager gitManager = Mockito.mock(GitWorkspaceManager.class);
     DockerSandboxManager dockerSandboxManager = Mockito.mock(DockerSandboxManager.class);
+    FingerprintService fingerprintService = Mockito.mock(FingerprintService.class);
     IncidentService service =
-        Mockito.spy(new IncidentService(gitManager, dockerSandboxManager, incidentRepository, "sandbox", "ai", ""));
+        Mockito.spy(new IncidentService(gitManager, dockerSandboxManager, incidentRepository, fingerprintService, "sandbox", "ai", ""));
 
     Path workspace = Path.of("build-scratch/workspace");
     Mockito.when(gitManager.prepareWorkspace("app-2", "https://example.invalid/repo.git", "main"))
@@ -506,14 +548,14 @@ class IncidentServiceTest {
     assertThrows(RuntimeException.class, () -> service.generateFix("inc-fix-fail"));
 
     IncidentEntity persisted = incidentRepository.findById("inc-fix-fail").orElseThrow();
-    assertEquals(IncidentStatus.FAILED, persisted.getStatus());
+    assertEquals(IncidentStatus.PENDING_REVIEW, persisted.getStatus());
   }
 
   @Test
-  void persistedApplyFixMarksIncidentFailedWhenDelegateThrows() {
+  void persistedApplyFixKeepsPendingReviewWhenDelegateThrows() {
     incidentRepository.deleteAll();
 
-    IncidentEntity incident = new IncidentEntity("inc-apply-fail", "app-2", IncidentStatus.FIXING);
+    IncidentEntity incident = new IncidentEntity("inc-apply-fail", "app-2", IncidentStatus.PENDING_REVIEW);
     incident.setRepoUrl("https://example.invalid/repo.git");
     incident.setBranch("main");
     incident.setSessionId("sess-2");
@@ -521,8 +563,9 @@ class IncidentServiceTest {
 
     GitWorkspaceManager gitManager = Mockito.mock(GitWorkspaceManager.class);
     DockerSandboxManager dockerSandboxManager = Mockito.mock(DockerSandboxManager.class);
+    FingerprintService fingerprintService = Mockito.mock(FingerprintService.class);
     IncidentService service =
-        Mockito.spy(new IncidentService(gitManager, dockerSandboxManager, incidentRepository, "sandbox", "ai", ""));
+        Mockito.spy(new IncidentService(gitManager, dockerSandboxManager, incidentRepository, fingerprintService, "sandbox", "ai", ""));
 
     Path workspace = Path.of("build-scratch/workspace");
     Mockito.when(gitManager.prepareWorkspace("app-2", "https://example.invalid/repo.git", "main"))
@@ -532,35 +575,37 @@ class IncidentServiceTest {
     assertThrows(RuntimeException.class, () -> service.applyFix("inc-apply-fail"));
 
     IncidentEntity persisted = incidentRepository.findById("inc-apply-fail").orElseThrow();
-    assertEquals(IncidentStatus.FAILED, persisted.getStatus());
+    assertEquals(IncidentStatus.PENDING_REVIEW, persisted.getStatus());
   }
 
   @Test
   void persistedGenerateFixRejectsInvalidState() {
     incidentRepository.deleteAll();
-    incidentRepository.saveAndFlush(new IncidentEntity("inc-3", "app-3", IncidentStatus.WAITING));
+    incidentRepository.saveAndFlush(new IncidentEntity("inc-3", "app-3", IncidentStatus.OPEN));
 
     GitWorkspaceManager gitManager = Mockito.mock(GitWorkspaceManager.class);
     DockerSandboxManager dockerSandboxManager = Mockito.mock(DockerSandboxManager.class);
+    FingerprintService fingerprintService = Mockito.mock(FingerprintService.class);
     IncidentService service =
-        new IncidentService(gitManager, dockerSandboxManager, incidentRepository, "sandbox", "ai", "");
+        new IncidentService(gitManager, dockerSandboxManager, incidentRepository, fingerprintService, "sandbox", "ai", "");
 
     assertThrows(IllegalStateException.class, () -> service.generateFix("inc-3"));
-    assertEquals(IncidentStatus.WAITING, incidentRepository.findById("inc-3").orElseThrow().getStatus());
+    assertEquals(IncidentStatus.OPEN, incidentRepository.findById("inc-3").orElseThrow().getStatus());
   }
 
   @Test
   void persistedGenerateFixRejectsMissingWorkspaceMetadata() {
     incidentRepository.deleteAll();
 
-    IncidentEntity incident = new IncidentEntity("inc-missing", "app-2", IncidentStatus.ANALYZED);
+    IncidentEntity incident = new IncidentEntity("inc-missing", "app-2", IncidentStatus.PENDING_REVIEW);
     incident.setSessionId("sess-2");
     incidentRepository.saveAndFlush(incident);
 
     GitWorkspaceManager gitManager = Mockito.mock(GitWorkspaceManager.class);
     DockerSandboxManager dockerSandboxManager = Mockito.mock(DockerSandboxManager.class);
+    FingerprintService fingerprintService = Mockito.mock(FingerprintService.class);
     IncidentService service =
-        new IncidentService(gitManager, dockerSandboxManager, incidentRepository, "sandbox", "ai", "");
+        new IncidentService(gitManager, dockerSandboxManager, incidentRepository, fingerprintService, "sandbox", "ai", "");
 
     assertThrows(IllegalStateException.class, () -> service.generateFix("inc-missing"));
   }
@@ -569,15 +614,16 @@ class IncidentServiceTest {
   void persistedGenerateFixRejectsMissingSessionId() {
     incidentRepository.deleteAll();
 
-    IncidentEntity incident = new IncidentEntity("inc-no-session", "app-2", IncidentStatus.ANALYZED);
+    IncidentEntity incident = new IncidentEntity("inc-no-session", "app-2", IncidentStatus.PENDING_REVIEW);
     incident.setRepoUrl("https://example.invalid/repo.git");
     incident.setBranch("main");
     incidentRepository.saveAndFlush(incident);
 
     GitWorkspaceManager gitManager = Mockito.mock(GitWorkspaceManager.class);
     DockerSandboxManager dockerSandboxManager = Mockito.mock(DockerSandboxManager.class);
+    FingerprintService fingerprintService = Mockito.mock(FingerprintService.class);
     IncidentService service =
-        new IncidentService(gitManager, dockerSandboxManager, incidentRepository, "sandbox", "ai", "");
+        new IncidentService(gitManager, dockerSandboxManager, incidentRepository, fingerprintService, "sandbox", "ai", "");
 
     assertThrows(IllegalStateException.class, () -> service.generateFix("inc-no-session"));
   }
@@ -586,7 +632,7 @@ class IncidentServiceTest {
   void persistedApplyFixRejectsInvalidState() {
     incidentRepository.deleteAll();
 
-    IncidentEntity incident = new IncidentEntity("inc-not-fixing", "app-2", IncidentStatus.ANALYZED);
+    IncidentEntity incident = new IncidentEntity("inc-not-fixing", "app-2", IncidentStatus.OPEN);
     incident.setSessionId("sess-2");
     incident.setRepoUrl("https://example.invalid/repo.git");
     incident.setBranch("main");
@@ -594,23 +640,26 @@ class IncidentServiceTest {
 
     GitWorkspaceManager gitManager = Mockito.mock(GitWorkspaceManager.class);
     DockerSandboxManager dockerSandboxManager = Mockito.mock(DockerSandboxManager.class);
+    FingerprintService fingerprintService = Mockito.mock(FingerprintService.class);
     IncidentService service =
-        new IncidentService(gitManager, dockerSandboxManager, incidentRepository, "sandbox", "ai", "");
+        new IncidentService(gitManager, dockerSandboxManager, incidentRepository, fingerprintService, "sandbox", "ai", "");
 
     assertThrows(IllegalStateException.class, () -> service.applyFix("inc-not-fixing"));
   }
 
   @Test
   void incidentStatusAllowsOnlyExpectedTransitions() {
-    assertTrue(IncidentStatus.WAITING.canTransitionTo(IncidentStatus.ANALYZING));
-    assertTrue(IncidentStatus.ANALYZING.canTransitionTo(IncidentStatus.ANALYZED));
-    assertTrue(IncidentStatus.ANALYZED.canTransitionTo(IncidentStatus.FIXING));
-    assertTrue(IncidentStatus.FIXING.canTransitionTo(IncidentStatus.AI_FIXED));
+    assertTrue(IncidentStatus.OPEN.canTransitionTo(IncidentStatus.ANALYZING));
+    assertTrue(IncidentStatus.ANALYZING.canTransitionTo(IncidentStatus.PENDING_REVIEW));
+    assertTrue(IncidentStatus.PENDING_REVIEW.canTransitionTo(IncidentStatus.FIXED));
+    assertTrue(IncidentStatus.FIXED.canTransitionTo(IncidentStatus.REGRESSION));
+    assertTrue(IncidentStatus.REGRESSION.canTransitionTo(IncidentStatus.ANALYZING));
+    assertTrue(IncidentStatus.OPEN.canTransitionTo(IncidentStatus.IGNORED));
 
-    assertTrue(!IncidentStatus.FIXED.canTransitionTo(IncidentStatus.FAILED));
-    assertTrue(!IncidentStatus.FAILED.canTransitionTo(IncidentStatus.WAITING));
-    assertTrue(!IncidentStatus.WAITING.canTransitionTo(IncidentStatus.WAITING));
-    assertTrue(!IncidentStatus.WAITING.canTransitionTo(null));
+    assertTrue(!IncidentStatus.OPEN.canTransitionTo(IncidentStatus.FIXED));
+    assertTrue(!IncidentStatus.IGNORED.canTransitionTo(IncidentStatus.OPEN));
+    assertTrue(!IncidentStatus.OPEN.canTransitionTo(IncidentStatus.OPEN));
+    assertTrue(!IncidentStatus.OPEN.canTransitionTo(null));
   }
 
   @Test
@@ -635,11 +684,13 @@ class IncidentServiceTest {
     com.healflow.engine.git.GitWorkspaceManager gitManager = Mockito.mock(com.healflow.engine.git.GitWorkspaceManager.class);
     com.healflow.engine.sandbox.DockerSandboxManager dockerSandboxManager =
         Mockito.mock(com.healflow.engine.sandbox.DockerSandboxManager.class);
+    FingerprintService fingerprintService = Mockito.mock(FingerprintService.class);
     IncidentService service =
         new IncidentService(
             gitManager,
             dockerSandboxManager,
             Mockito.mock(com.healflow.platform.repository.IncidentRepository.class),
+            fingerprintService,
             "sandbox-image",
             "ai-image",
             "");
@@ -668,11 +719,13 @@ class IncidentServiceTest {
     com.healflow.engine.git.GitWorkspaceManager gitManager = Mockito.mock(com.healflow.engine.git.GitWorkspaceManager.class);
     com.healflow.engine.sandbox.DockerSandboxManager dockerSandboxManager =
         Mockito.mock(com.healflow.engine.sandbox.DockerSandboxManager.class);
+    FingerprintService fingerprintService = Mockito.mock(FingerprintService.class);
     IncidentService service =
         new IncidentService(
             gitManager,
             dockerSandboxManager,
             Mockito.mock(com.healflow.platform.repository.IncidentRepository.class),
+            fingerprintService,
             "sandbox-image",
             "ai-image",
             "");
@@ -761,11 +814,13 @@ class IncidentServiceTest {
     com.healflow.engine.git.GitWorkspaceManager gitManager = Mockito.mock(com.healflow.engine.git.GitWorkspaceManager.class);
     com.healflow.engine.sandbox.DockerSandboxManager dockerSandboxManager =
         Mockito.mock(com.healflow.engine.sandbox.DockerSandboxManager.class);
+    FingerprintService fingerprintService = Mockito.mock(FingerprintService.class);
     IncidentService service =
         new IncidentService(
             gitManager,
             dockerSandboxManager,
             Mockito.mock(com.healflow.platform.repository.IncidentRepository.class),
+            fingerprintService,
             "sandbox-image",
             "ai-image",
             "");
@@ -841,11 +896,13 @@ class IncidentServiceTest {
     com.healflow.engine.git.GitWorkspaceManager gitManager = Mockito.mock(com.healflow.engine.git.GitWorkspaceManager.class);
     com.healflow.engine.sandbox.DockerSandboxManager dockerSandboxManager =
         Mockito.mock(com.healflow.engine.sandbox.DockerSandboxManager.class);
+    FingerprintService fingerprintService = Mockito.mock(FingerprintService.class);
     IncidentService service =
         new IncidentService(
             gitManager,
             dockerSandboxManager,
             Mockito.mock(com.healflow.platform.repository.IncidentRepository.class),
+            fingerprintService,
             "sandbox-image",
             "ai-image",
             "");
@@ -918,11 +975,13 @@ class IncidentServiceTest {
     com.healflow.engine.git.GitWorkspaceManager gitManager = Mockito.mock(com.healflow.engine.git.GitWorkspaceManager.class);
     com.healflow.engine.sandbox.DockerSandboxManager dockerSandboxManager =
         Mockito.mock(com.healflow.engine.sandbox.DockerSandboxManager.class);
+    FingerprintService fingerprintService = Mockito.mock(FingerprintService.class);
     IncidentService service =
         new IncidentService(
             gitManager,
             dockerSandboxManager,
             Mockito.mock(com.healflow.platform.repository.IncidentRepository.class),
+            fingerprintService,
             "sandbox-image",
             "ai-image",
             "");
@@ -954,11 +1013,13 @@ class IncidentServiceTest {
     com.healflow.engine.git.GitWorkspaceManager gitManager = Mockito.mock(com.healflow.engine.git.GitWorkspaceManager.class);
     com.healflow.engine.sandbox.DockerSandboxManager dockerSandboxManager =
         Mockito.mock(com.healflow.engine.sandbox.DockerSandboxManager.class);
+    FingerprintService fingerprintService = Mockito.mock(FingerprintService.class);
     IncidentService service =
         new IncidentService(
             gitManager,
             dockerSandboxManager,
             Mockito.mock(com.healflow.platform.repository.IncidentRepository.class),
+            fingerprintService,
             "sandbox-image",
             "ai-image",
             "");
@@ -991,11 +1052,13 @@ class IncidentServiceTest {
     com.healflow.engine.git.GitWorkspaceManager gitManager = Mockito.mock(com.healflow.engine.git.GitWorkspaceManager.class);
     com.healflow.engine.sandbox.DockerSandboxManager dockerSandboxManager =
         Mockito.mock(com.healflow.engine.sandbox.DockerSandboxManager.class);
+    FingerprintService fingerprintService = Mockito.mock(FingerprintService.class);
     IncidentService service =
         new IncidentService(
             gitManager,
             dockerSandboxManager,
             Mockito.mock(com.healflow.platform.repository.IncidentRepository.class),
+            fingerprintService,
             "sandbox-image",
             "ai-image",
             "");
@@ -1008,6 +1071,14 @@ class IncidentServiceTest {
   private static void writeClaudeSettings(Path home, String json) throws Exception {
     Path claudeDir = Files.createDirectories(home.resolve(".claude"));
     Files.writeString(claudeDir.resolve("settings.json"), json);
+  }
+
+  private static IncidentEntity invokeFindOrCreateIncident(
+      IncidentService service, String incidentId, IncidentReport report) throws Exception {
+    java.lang.reflect.Method method =
+        IncidentService.class.getDeclaredMethod("findOrCreateIncident", String.class, IncidentReport.class);
+    method.setAccessible(true);
+    return (IncidentEntity) method.invoke(service, incidentId, report);
   }
 
   private static String invokeGetApiKeyFromHost(IncidentService service) throws Exception {

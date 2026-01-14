@@ -18,6 +18,8 @@ healflow:
   enabled: true
   exception-listener-enabled: true
   high-severity-token: panic
+  encryption:
+    key: ${HEALFLOW_ENCRYPTION_KEY:0123456789abcdef0123456789abcdef}
   sandbox:
     image: "ubuntu:latest"
   git:

@@ -1,8 +1,0 @@
-server:
-  port: 8081
-
-healflow:
-  app-id: "demo-service-01"
-  server-url: "http://localhost:8080"
-  git-url: "https://github.com/Erlin610/healflow.git"
-  git-branch: "main"

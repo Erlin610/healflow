@@ -1,5 +1,6 @@
 package com.healflow.platform.entity;
 
+import com.healflow.common.enums.IncidentStatus;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -32,6 +33,9 @@ public class IncidentEntity {
   @Enumerated(EnumType.STRING)
   @Column(nullable = false, length = 32)
   private IncidentStatus status;
+
+  @Column
+  private Instant statusChangedAt;
 
   @Column(length = 256)
   private String sessionId;
@@ -70,6 +74,9 @@ public class IncidentEntity {
   @Column(columnDefinition = "TEXT")
   private String gitDiff;
 
+  @Column(length = 64)
+  private String fingerprintId;
+
   @Column(nullable = false, updatable = false)
   private Instant createdAt;
 
@@ -83,7 +90,7 @@ public class IncidentEntity {
   public IncidentEntity(String id, String appId, IncidentStatus status) {
     this.id = requireNonBlank(id, "id");
     this.appId = requireNonBlank(appId, "appId");
-    this.status = status == null ? IncidentStatus.WAITING : status;
+    setStatus(status == null ? IncidentStatus.OPEN : status);
   }
 
   @PrePersist
@@ -91,6 +98,12 @@ public class IncidentEntity {
     Instant now = Instant.now();
     if (createdAt == null) {
       createdAt = now;
+    }
+    if (status == null) {
+      setStatus(IncidentStatus.OPEN);
+    }
+    if (statusChangedAt == null) {
+      statusChangedAt = now;
     }
     updatedAt = now;
   }
@@ -136,7 +149,10 @@ public class IncidentEntity {
     if (status == null) {
       throw new IllegalArgumentException("status must not be null");
     }
-    this.status = status;
+    if (this.status != status) {
+      this.status = status;
+      this.statusChangedAt = Instant.now();
+    }
   }
 
   public String getSessionId() {
@@ -235,8 +251,20 @@ public class IncidentEntity {
     return updatedAt;
   }
 
+  public Instant getStatusChangedAt() {
+    return statusChangedAt;
+  }
+
   public long getVersion() {
     return version;
+  }
+
+  public String getFingerprintId() {
+    return fingerprintId;
+  }
+
+  public void setFingerprintId(String fingerprintId) {
+    this.fingerprintId = fingerprintId;
   }
 
   private static String requireNonBlank(String value, String field) {
