@@ -347,7 +347,7 @@ public class IncidentService {
           "错误信息: %s\n" +
           "堆栈跟踪:\n%s\n\n" +
           "请提供详细的分析和修复方案建议，但不要直接修改代码。\n" +
-          "如果有多种修复方案，请列举所有可行方案并标明你推荐哪种。\n" +
+          "如果有多种修复方案，请在 solutions 字段中列举所有可行方案，每个方案包含 title、description 和 recommended（是否推荐）。\n" +
           "如果需要用户确认某些信息才能确定最佳修复方案，请在 questions 字段中提出问题。\n" +
           "问题格式参考 Claude Code 的 AskUserQuestion 工具：\n" +
           "- question: 问题描述\n" +
@@ -360,7 +360,7 @@ public class IncidentService {
           truncate(report.stackTrace(), 1000)
       );
 
-      String jsonSchema = "{\"type\":\"object\",\"properties\":{\"bug_type\":{\"type\":\"string\"},\"severity\":{\"type\":\"string\",\"enum\":[\"critical\",\"high\",\"medium\",\"low\"]},\"root_cause\":{\"type\":\"string\"},\"affected_files\":{\"type\":\"array\",\"items\":{\"type\":\"string\"}},\"analysis\":{\"type\":\"string\"},\"confidence\":{\"type\":\"number\",\"minimum\":0,\"maximum\":1},\"questions\":{\"type\":\"array\",\"items\":{\"type\":\"object\",\"properties\":{\"question\":{\"type\":\"string\"},\"header\":{\"type\":\"string\"},\"multiSelect\":{\"type\":\"boolean\"},\"options\":{\"type\":\"array\",\"items\":{\"type\":\"object\",\"properties\":{\"label\":{\"type\":\"string\"},\"description\":{\"type\":\"string\"}},\"required\":[\"label\",\"description\"]}}},\"required\":[\"question\",\"header\",\"options\",\"multiSelect\"]}}},\"required\":[\"bug_type\",\"severity\",\"root_cause\",\"analysis\",\"confidence\"]}";
+      String jsonSchema = "{\"type\":\"object\",\"properties\":{\"bug_type\":{\"type\":\"string\"},\"severity\":{\"type\":\"string\",\"enum\":[\"critical\",\"high\",\"medium\",\"low\"]},\"root_cause\":{\"type\":\"string\"},\"affected_files\":{\"type\":\"array\",\"items\":{\"type\":\"string\"}},\"analysis\":{\"type\":\"string\"},\"solutions\":{\"type\":\"array\",\"items\":{\"type\":\"object\",\"properties\":{\"title\":{\"type\":\"string\"},\"description\":{\"type\":\"string\"},\"recommended\":{\"type\":\"boolean\"}},\"required\":[\"title\",\"description\"]}},\"confidence\":{\"type\":\"number\",\"minimum\":0,\"maximum\":1},\"questions\":{\"type\":\"array\",\"items\":{\"type\":\"object\",\"properties\":{\"question\":{\"type\":\"string\"},\"header\":{\"type\":\"string\"},\"multiSelect\":{\"type\":\"boolean\"},\"options\":{\"type\":\"array\",\"items\":{\"type\":\"object\",\"properties\":{\"label\":{\"type\":\"string\"},\"description\":{\"type\":\"string\"}},\"required\":[\"label\",\"description\"]}}},\"required\":[\"question\",\"header\",\"options\",\"multiSelect\"]}}},\"required\":[\"bug_type\",\"severity\",\"root_cause\",\"analysis\",\"confidence\"]}";
 
       Path schemaFile = sourceCodePath.resolve("analysis-schema.json");
       Path scriptFile = sourceCodePath.resolve("analyze-incident.sh");

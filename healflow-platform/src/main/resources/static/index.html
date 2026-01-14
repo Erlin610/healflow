@@ -337,7 +337,17 @@
         if (inc.analysisResult) {
             try {
                 var analysis = JSON.parse(inc.analysisResult);
-                document.getElementById('content-analysis').innerHTML = '<h3 class="font-bold mb-2">根本原因</h3><p class="mb-4">' + (analysis.root_cause || '-') + '</p><h3 class="font-bold mb-2">分析详情</h3><p>' + (analysis.analysis || '-') + '</p>';
+                var html = '<h3 class="font-bold mb-2">根本原因</h3><p class="mb-4">' + (analysis.root_cause || '-') + '</p>';
+                html += '<h3 class="font-bold mb-2">分析详情</h3><p class="mb-4">' + (analysis.analysis || '-') + '</p>';
+                if (analysis.solutions && analysis.solutions.length > 0) {
+                    html += '<h3 class="font-bold mb-2">修复方案</h3><div class="space-y-2">';
+                    analysis.solutions.forEach(function(sol, idx) {
+                        var badge = sol.recommended ? '<span class="ml-2 px-2 py-0.5 bg-green-100 text-green-800 text-xs rounded">推荐</span>' : '';
+                        html += '<div class="border border-gray-200 rounded p-3"><div class="font-semibold">方案 ' + (idx + 1) + ': ' + sol.title + badge + '</div><div class="text-sm text-gray-600 mt-1">' + sol.description + '</div></div>';
+                    });
+                    html += '</div>';
+                }
+                document.getElementById('content-analysis').innerHTML = html;
             } catch (e) {
                 document.getElementById('content-analysis').textContent = inc.analysisResult;
             }
