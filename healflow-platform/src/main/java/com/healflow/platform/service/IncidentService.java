@@ -46,6 +46,7 @@ public class IncidentService {
   private final DockerSandboxManager dockerSandboxManager;
   private final IncidentRepository incidentRepository;
   private final FingerprintService fingerprintService;
+  private final ApplicationService applicationService;
   private final String sandboxImage;
   private final String aiAgentImage;
   private final ObjectMapper objectMapper;
@@ -57,6 +58,7 @@ public class IncidentService {
       DockerSandboxManager dockerSandboxManager,
       IncidentRepository incidentRepository,
       FingerprintService fingerprintService,
+      ApplicationService applicationService,
       @Value("${healflow.sandbox.image:ubuntu:latest}") String sandboxImage,
       @Value("${healflow.ai.image:healflow-agent:v1}") String aiAgentImage,
       @Value("${healflow.git.token:}") String gitToken) {
@@ -64,6 +66,7 @@ public class IncidentService {
     this.dockerSandboxManager = dockerSandboxManager;
     this.incidentRepository = incidentRepository;
     this.fingerprintService = fingerprintService;
+    this.applicationService = applicationService;
     this.sandboxImage = sandboxImage;
     this.aiAgentImage = aiAgentImage;
     this.objectMapper = new ObjectMapper();
@@ -77,6 +80,9 @@ public class IncidentService {
 
   public String createIncident(IncidentReport report) {
     log.info("Creating incident for app: {}", report.appId());
+
+    // Auto-register application if not exists
+    ensureApplicationExists(report);
 
     String incidentId = "inc-" + System.currentTimeMillis();
     IncidentEntity incident = new IncidentEntity(incidentId, report.appId(), IncidentStatus.OPEN);
@@ -96,6 +102,29 @@ public class IncidentService {
         incidentId, fingerprint.getFingerprint(), fingerprint.getOccurrenceCount());
 
     return incidentId;
+  }
+
+  private void ensureApplicationExists(IncidentReport report) {
+    try {
+      applicationService.getApplication(report.appId());
+      log.debug("Application already exists: {}", report.appId());
+    } catch (IllegalArgumentException e) {
+      // Application not found, auto-register
+      log.info("Auto-registering application: {}", report.appId());
+      ApplicationService.ApplicationRequest request = new ApplicationService.ApplicationRequest(
+          report.appId(),
+          report.repoUrl(),
+          report.branch(),
+          null, // gitToken - to be configured later
+          null, // aiApiKey - to be configured later
+          false, // autoAnalyze - disabled by default
+          false, // autoFixProposal - disabled by default
+          false, // autoCommit - disabled by default
+          null  // webhookUrl - to be configured later
+      );
+      applicationService.create(request);
+      log.info("Application auto-registered: {}", report.appId());
+    }
   }
 
   private static String buildContainerName(String appId) {
@@ -255,13 +284,26 @@ public class IncidentService {
     if (incident.getAppId() == null || incident.getAppId().isBlank()) {
       throw new IllegalStateException("Incident has no appId");
     }
-    if (incident.getRepoUrl() == null || incident.getRepoUrl().isBlank()) {
-      throw new IllegalStateException("Incident has no repoUrl");
+    
+    // Get Git URL and branch from Application configuration
+    ApplicationService.ApplicationResponse app;
+    try {
+      app = applicationService.getApplication(incident.getAppId());
+    } catch (IllegalArgumentException e) {
+      throw new IllegalStateException("Application not found: " + incident.getAppId(), e);
     }
-    if (incident.getBranch() == null || incident.getBranch().isBlank()) {
-      throw new IllegalStateException("Incident has no branch");
+    
+    String repoUrl = app.gitUrl();
+    String branch = app.gitBranch();
+    
+    if (repoUrl == null || repoUrl.isBlank()) {
+      throw new IllegalStateException("Application has no gitUrl configured: " + incident.getAppId());
     }
-    return gitManager.prepareWorkspace(incident.getAppId(), incident.getRepoUrl(), incident.getBranch());
+    if (branch == null || branch.isBlank()) {
+      branch = "main"; // Default branch
+    }
+    
+    return gitManager.prepareWorkspace(incident.getAppId(), repoUrl, branch);
   }
 
   private void transitionOrThrow(IncidentEntity incident, IncidentStatus target) {

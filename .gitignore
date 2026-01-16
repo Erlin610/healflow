@@ -48,3 +48,9 @@ SpawnTest*.java
 tmp-delete-me.txt
 tmp-delete-test-root.txt
 nul
+
+# H2 Database files
+data/
+*.mv.db
+*.trace.db
+

@@ -614,21 +614,34 @@
             autoFixProposal: document.getElementById('form-autoFix').checked
         };
         
+        // Validate: autoAnalyze or autoFixProposal requires gitUrl
+        if ((data.autoAnalyze || data.autoFixProposal) && (!data.gitUrl || data.gitUrl.trim() === '')) {
+            showAlert('开启自动分析或自动修复需要填写 Git 仓库地址', 'error');
+            return;
+        }
+        
         var method = editingAppName ? 'PUT' : 'POST';
         var url = editingAppName ? '/api/v1/applications/' + editingAppName : '/api/v1/applications';
         
         fetch(url, { method: method, headers: {'Content-Type': 'application/json'}, body: JSON.stringify(data) })
             .then(function(r) {
+                console.log('Response status:', r.status);
                 if (r.ok) {
-                    showAlert(editingAppName ? '应用已更新' : '应用已创建', 'success').then(function() {
-                        closeAppModal();
-                        loadDashboard();
-                    });
+                    console.log('Success, closing modal...');
+                    closeAppModal();
+                    showAlert(editingAppName ? '应用已更新' : '应用已创建', 'success');
+                    loadDashboard();
                 } else {
-                    showAlert('保存失败', 'error');
+                    r.text().then(function(text) {
+                        console.error('Failed:', text);
+                        showAlert('保存失败: ' + text, 'error');
+                    });
                 }
             })
-            .catch(function(e) { showAlert('保存失败: ' + e.message, 'error'); });
+            .catch(function(e) { 
+                console.error('Error:', e);
+                showAlert('保存失败: ' + e.message, 'error'); 
+            });
     }
 })();
 </script>
