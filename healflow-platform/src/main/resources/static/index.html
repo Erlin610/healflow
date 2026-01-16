@@ -22,6 +22,11 @@
     <style>
         body { background-color: #F3F4F6; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
         .grid-dashboard { grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: scale(0.95); }
+            to { opacity: 1; transform: scale(1); }
+        }
+        .animate-fade-in { animation: fadeIn 0.2s ease-out; }
     </style>
 </head>
 <body class="h-screen flex flex-col overflow-hidden">
@@ -69,6 +74,9 @@
                 <div class="flex justify-between items-center mb-2">
                     <h2 class="text-lg font-medium text-gray-900">异常控制台</h2>
                     <div class="flex gap-2">
+                        <select id="filter-app" class="text-sm border-gray-300 rounded-md px-3 py-1.5">
+                            <option value="">全部项目</option>
+                        </select>
                         <select id="filter-status" class="text-sm border-gray-300 rounded-md px-3 py-1.5">
                             <option value="">全部状态</option>
                             <option value="OPEN">待处理</option>
@@ -137,10 +145,49 @@
         </main>
     </div>
 
+    <!-- Custom Alert Modal -->
+    <div id="custom-alert" class="hidden fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center">
+        <div class="bg-white rounded-lg shadow-xl w-full max-w-md animate-fade-in">
+            <div class="p-6">
+                <div class="flex items-start gap-4">
+                    <div id="alert-icon" class="flex-shrink-0"></div>
+                    <div class="flex-1">
+                        <h3 id="alert-title" class="text-lg font-medium text-gray-900 mb-2"></h3>
+                        <p id="alert-message" class="text-sm text-gray-600"></p>
+                    </div>
+                </div>
+                <div class="mt-6 flex justify-end">
+                    <button id="alert-ok-btn" class="px-4 py-2 rounded-md text-sm text-white bg-brand-600 hover:bg-brand-700">确定</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Custom Confirm Modal -->
+    <div id="custom-confirm" class="hidden fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center">
+        <div class="bg-white rounded-lg shadow-xl w-full max-w-md animate-fade-in">
+            <div class="p-6">
+                <div class="flex items-start gap-4">
+                    <div class="flex-shrink-0">
+                        <svg class="w-6 h-6 text-yellow-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
+                    </div>
+                    <div class="flex-1">
+                        <h3 class="text-lg font-medium text-gray-900 mb-2">确认操作</h3>
+                        <p id="confirm-message" class="text-sm text-gray-600"></p>
+                    </div>
+                </div>
+                <div class="mt-6 flex justify-end gap-3">
+                    <button id="confirm-cancel-btn" class="px-4 py-2 border border-gray-300 rounded-md text-sm text-gray-700 bg-white hover:bg-gray-50">取消</button>
+                    <button id="confirm-ok-btn" class="px-4 py-2 rounded-md text-sm text-white bg-brand-600 hover:bg-brand-700">确定</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <div id="app-modal" class="hidden fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center">
         <div class="bg-white rounded-lg shadow-xl w-full max-w-lg">
             <div class="px-6 py-4 border-b border-gray-200 flex justify-between items-center bg-gray-50">
-                <h3 class="text-lg font-medium text-gray-900">新建应用</h3>
+                <h3 class="text-lg font-medium text-gray-900" id="modal-title">新建应用</h3>
                 <button id="btn-close-modal" class="text-gray-400 hover:text-gray-500 text-2xl">&times;</button>
             </div>
             <form id="app-form" class="p-6 space-y-4">
@@ -149,8 +196,9 @@
                     <div><label class="block text-sm font-medium text-gray-700 mb-1">Git 仓库地址</label><input type="text" name="gitUrl" id="form-gitUrl" class="w-full border border-gray-300 rounded-md py-2 px-3 text-sm"></div>
                     <div><label class="block text-sm font-medium text-gray-700 mb-1">分支</label><input type="text" name="gitBranch" id="form-gitBranch" placeholder="main" class="w-full border border-gray-300 rounded-md py-2 px-3 text-sm"></div>
                 </div>
-                <div><label class="block text-sm font-medium text-gray-700 mb-1">Git Token</label><input type="password" name="gitToken" id="form-gitToken" class="w-full border border-gray-300 rounded-md py-2 px-3 text-sm"></div>
-                <div><label class="block text-sm font-medium text-gray-700 mb-1">AI API Key</label><input type="password" name="aiApiKey" id="form-aiApiKey" class="w-full border border-gray-300 rounded-md py-2 px-3 text-sm"></div>
+                <div><label class="block text-sm font-medium text-gray-700 mb-1">Git 授权令牌</label><input type="password" name="gitToken" id="form-gitToken" class="w-full border border-gray-300 rounded-md py-2 px-3 text-sm"></div>
+                <div><label class="block text-sm font-medium text-gray-700 mb-1">Webhook 通知地址</label><input type="text" name="webhookUrl" id="form-webhookUrl" placeholder="https://example.com/webhook" class="w-full border border-gray-300 rounded-md py-2 px-3 text-sm"></div>
+
                 <div class="flex gap-4">
                     <label class="flex items-center"><input type="checkbox" id="form-autoAnalyze" class="mr-2">自动分析</label>
                     <label class="flex items-center"><input type="checkbox" id="form-autoFix" class="mr-2">自动修复</label>
@@ -166,8 +214,56 @@
 <script>
 (function() {
     var currentIncident = null;
+    var editingAppName = null;
+    var allApps = [];
 
     document.addEventListener('DOMContentLoaded', init);
+
+    // Custom Alert/Confirm Functions
+    function showAlert(message, type) {
+        type = type || 'info';
+        var modal = document.getElementById('custom-alert');
+        var icon = document.getElementById('alert-icon');
+        var title = document.getElementById('alert-title');
+        var msg = document.getElementById('alert-message');
+        
+        var icons = {
+            success: '<svg class="w-6 h-6 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>',
+            error: '<svg class="w-6 h-6 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>',
+            info: '<svg class="w-6 h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>'
+        };
+        
+        var titles = { success: '成功', error: '错误', info: '提示' };
+        
+        icon.innerHTML = icons[type] || icons.info;
+        title.textContent = titles[type] || titles.info;
+        msg.textContent = message;
+        modal.classList.remove('hidden');
+        
+        return new Promise(function(resolve) {
+            document.getElementById('alert-ok-btn').onclick = function() {
+                modal.classList.add('hidden');
+                resolve();
+            };
+        });
+    }
+
+    function showConfirm(message) {
+        var modal = document.getElementById('custom-confirm');
+        document.getElementById('confirm-message').textContent = message;
+        modal.classList.remove('hidden');
+        
+        return new Promise(function(resolve) {
+            document.getElementById('confirm-ok-btn').onclick = function() {
+                modal.classList.add('hidden');
+                resolve(true);
+            };
+            document.getElementById('confirm-cancel-btn').onclick = function() {
+                modal.classList.add('hidden');
+                resolve(false);
+            };
+        });
+    }
 
     function init() {
         updateClock();
@@ -184,10 +280,11 @@
     function bindEvents() {
         document.getElementById('nav-dashboard').addEventListener('click', function() { switchView('dashboard'); });
         document.getElementById('nav-incidents').addEventListener('click', function() { switchView('incidents'); });
-        document.getElementById('btn-new-app').addEventListener('click', openAppModal);
+        document.getElementById('btn-new-app').addEventListener('click', function() { openAppModal(); });
         document.getElementById('btn-close-modal').addEventListener('click', closeAppModal);
         document.getElementById('btn-cancel-modal').addEventListener('click', closeAppModal);
         document.getElementById('app-form').addEventListener('submit', saveApp);
+        document.getElementById('filter-app').addEventListener('change', loadIncidents);
         document.getElementById('filter-status').addEventListener('change', loadIncidents);
         document.getElementById('btn-refresh').addEventListener('click', loadIncidents);
         document.getElementById('btn-back').addEventListener('click', function() { switchView('incidents'); });
@@ -236,21 +333,50 @@
         document.getElementById('content-' + tab).classList.remove('hidden');
     }
 
-    function openAppModal() {
-        document.getElementById('app-modal').classList.remove('hidden');
-        document.getElementById('app-form').reset();
+    function openAppModal(appName) {
+        editingAppName = appName || null;
+        var modal = document.getElementById('app-modal');
+        var form = document.getElementById('app-form');
+        var title = document.getElementById('modal-title');
+        
+        form.reset();
+        
+        if (editingAppName) {
+            title.textContent = '编辑应用';
+            fetch('/api/v1/applications/' + editingAppName)
+                .then(function(r) { return r.json(); })
+                .then(function(app) {
+                    document.getElementById('form-appName').value = app.appName;
+                    document.getElementById('form-appName').disabled = true;
+                    document.getElementById('form-gitUrl').value = app.gitUrl || '';
+                    document.getElementById('form-gitBranch').value = app.gitBranch || '';
+                    document.getElementById('form-gitToken').value = '';
+                    document.getElementById('form-webhookUrl').value = app.webhookUrl || '';
+                    document.getElementById('form-autoAnalyze').checked = app.autoAnalyze;
+                    document.getElementById('form-autoFix').checked = app.autoFixProposal;
+                })
+                .catch(function(e) { showAlert('加载应用数据失败', 'error'); });
+        } else {
+            title.textContent = '新建应用';
+            document.getElementById('form-appName').disabled = false;
+        }
+        
+        modal.classList.remove('hidden');
     }
 
     function closeAppModal() {
         document.getElementById('app-modal').classList.add('hidden');
+        editingAppName = null;
     }
 
     function loadDashboard() {
         fetch('/api/v1/applications')
             .then(function(r) { return r.json(); })
             .then(function(apps) {
+                allApps = apps;
                 document.getElementById('stat-total-apps').textContent = apps.length || 0;
                 renderAppGrid(apps);
+                loadAppFilter();
             })
             .catch(function(e) { console.error(e); });
 
@@ -260,6 +386,17 @@
                 document.getElementById('stat-active-incidents').textContent = incidents.length || 0;
             })
             .catch(function(e) { console.error(e); });
+    }
+
+    function loadAppFilter() {
+        var select = document.getElementById('filter-app');
+        select.innerHTML = '<option value="">全部项目</option>';
+        allApps.forEach(function(app) {
+            var option = document.createElement('option');
+            option.value = app.appName;
+            option.textContent = app.appName;
+            select.appendChild(option);
+        });
     }
 
     function renderAppGrid(apps) {
@@ -272,20 +409,71 @@
             var autoTags = '';
             if (app.autoAnalyze) autoTags += '<span class="px-2 py-0.5 rounded text-xs bg-blue-100 text-blue-800 mr-1">Auto-Analyze</span>';
             if (app.autoFixProposal) autoTags += '<span class="px-2 py-0.5 rounded text-xs bg-purple-100 text-purple-800">Auto-Fix</span>';
-            return '<div class="bg-white rounded-lg border border-gray-200 shadow-sm hover:shadow-md p-5 flex flex-col h-36">' +
-                '<div class="flex justify-between items-start mb-2"><div class="font-bold text-lg text-gray-900 truncate">' + app.appName + '</div><div class="w-2 h-2 rounded-full bg-success"></div></div>' +
+            return '<div class="bg-white rounded-lg border border-gray-200 shadow-sm hover:shadow-md p-5 flex flex-col h-36 relative app-card" data-app="' + app.appName + '">' +
+                '<div class="absolute top-3 right-3 flex gap-2">' +
+                '<button class="edit-app-btn p-1 text-gray-400 hover:text-brand-600" data-app="' + app.appName + '" title="编辑">' +
+                '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path></svg>' +
+                '</button>' +
+                '<button class="delete-app-btn p-1 text-gray-400 hover:text-red-600" data-app="' + app.appName + '" title="删除">' +
+                '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>' +
+                '</button></div>' +
+                '<div class="flex justify-between items-start mb-2"><div class="font-bold text-lg text-gray-900 truncate pr-16">' + app.appName + '</div></div>' +
                 '<div class="text-sm text-gray-500 mb-3 truncate">' + (app.gitUrl || 'No Git URL') + '</div>' +
                 '<div class="mt-auto flex justify-between items-center"><div>' + autoTags + '</div></div></div>';
         }).join('');
+        
+        // Bind edit/delete events
+        grid.querySelectorAll('.edit-app-btn').forEach(function(btn) {
+            btn.addEventListener('click', function(e) {
+                e.stopPropagation();
+                openAppModal(btn.dataset.app);
+            });
+        });
+        
+        grid.querySelectorAll('.delete-app-btn').forEach(function(btn) {
+            btn.addEventListener('click', function(e) {
+                e.stopPropagation();
+                deleteApp(btn.dataset.app);
+            });
+        });
+        
+        // Click card to view incidents
+        grid.querySelectorAll('.app-card').forEach(function(card) {
+            card.addEventListener('click', function() {
+                document.getElementById('filter-app').value = card.dataset.app;
+                switchView('incidents');
+            });
+        });
     }
 
     function loadIncidents() {
         var status = document.getElementById('filter-status').value;
-        var url = status ? '/api/v1/incidents?status=' + status : '/api/v1/incidents';
+        var appName = document.getElementById('filter-app').value;
+        var url = '/api/v1/incidents?';
+        if (status) url += 'status=' + status + '&';
+        if (appName) url += 'appId=' + appName;
         fetch(url)
             .then(function(r) { return r.json(); })
             .then(function(incidents) { renderIncidentTable(incidents); })
             .catch(function(e) { console.error(e); });
+    }
+
+    function deleteApp(appName) {
+        showConfirm('确认删除应用 "' + appName + '"？此操作不可恢复。').then(function(confirmed) {
+            if (!confirmed) return;
+            
+            fetch('/api/v1/applications/' + appName, { method: 'DELETE' })
+                .then(function(r) {
+                    if (r.ok) {
+                        showAlert('应用已删除', 'success').then(function() {
+                            loadDashboard();
+                        });
+                    } else {
+                        showAlert('删除失败', 'error');
+                    }
+                })
+                .catch(function(e) { showAlert('删除失败: ' + e.message, 'error'); });
+        });
     }
 
     function renderIncidentTable(incidents) {
@@ -321,7 +509,7 @@
                 currentIncident = inc;
                 renderWorkbench(inc);
             })
-            .catch(function(e) { alert('加载失败'); });
+            .catch(function(e) { showAlert('加载失败', 'error'); });
     }
 
     function renderWorkbench(inc) {
@@ -383,7 +571,8 @@
 
     function triggerAction(action) {
         if (!currentIncident) return;
-        if (!confirm('确认执行 ' + action + '?')) return;
+        showConfirm('确认执行 ' + action + '?').then(function(confirmed) {
+            if (!confirmed) return;
         
         var body = '{}';
         if (action === 'analyze') {
@@ -401,10 +590,16 @@
         
         fetch('/api/v1/incidents/' + currentIncident.id + '/' + action, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: body })
             .then(function(r) {
-                if (r.ok) { alert('操作已触发。'); openWorkbench(currentIncident.id); }
-                else { alert('操作失败'); }
+                if (r.ok) { 
+                    showAlert('操作已触发', 'success').then(function() {
+                        openWorkbench(currentIncident.id);
+                    });
+                } else { 
+                    showAlert('操作失败', 'error');
+                }
             })
-            .catch(function(e) { console.error(e); });
+            .catch(function(e) { showAlert('操作失败: ' + e.message, 'error'); });
+        });
     }
 
     function saveApp(e) {
@@ -414,13 +609,26 @@
             gitUrl: document.getElementById('form-gitUrl').value,
             gitBranch: document.getElementById('form-gitBranch').value,
             gitToken: document.getElementById('form-gitToken').value,
-            aiApiKey: document.getElementById('form-aiApiKey').value,
+            webhookUrl: document.getElementById('form-webhookUrl').value,
             autoAnalyze: document.getElementById('form-autoAnalyze').checked,
             autoFixProposal: document.getElementById('form-autoFix').checked
         };
-        fetch('/api/v1/applications', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(data) })
-            .then(function() { closeAppModal(); loadDashboard(); })
-            .catch(function(e) { alert('保存失败'); });
+        
+        var method = editingAppName ? 'PUT' : 'POST';
+        var url = editingAppName ? '/api/v1/applications/' + editingAppName : '/api/v1/applications';
+        
+        fetch(url, { method: method, headers: {'Content-Type': 'application/json'}, body: JSON.stringify(data) })
+            .then(function(r) {
+                if (r.ok) {
+                    showAlert(editingAppName ? '应用已更新' : '应用已创建', 'success').then(function() {
+                        closeAppModal();
+                        loadDashboard();
+                    });
+                } else {
+                    showAlert('保存失败', 'error');
+                }
+            })
+            .catch(function(e) { showAlert('保存失败: ' + e.message, 'error'); });
     }
 })();
 </script>
