@@ -168,9 +168,7 @@ public class IncidentService {
       }
 
       ZoneId serverZone = ZoneId.systemDefault();
-      Instant startOfToday = LocalDate.now(serverZone).atStartOfDay(serverZone).toInstant();
-      if (incidentRepository.existsByFingerprintIdAndStatusInAndCreatedAtGreaterThanEqual(
-          fingerprintId, ANALYZED_STATUSES, startOfToday)) {
+      if (fingerprintAlreadyAnalyzedToday(fingerprintId, serverZone)) {
         log.info("Fingerprint {} already analyzed today, skipping auto-analysis for incident {}",
             fingerprintId, incidentId);
         incidentRepository.findById(incidentId).ifPresent(current -> {
@@ -421,7 +419,6 @@ public class IncidentService {
         incident.setStatus(IncidentStatus.OPEN);
       } else if (incident.getStatus() == IncidentStatus.FIXED) {
         transitionOrThrow(incident, IncidentStatus.REGRESSION);
-        notifyWebhook(incident, report);
       }
       return incident;
     }
@@ -436,7 +433,13 @@ public class IncidentService {
     if (webhookService == null || incident == null || report == null) {
       return;
     }
+    if (incident.getStatus() != IncidentStatus.OPEN) {
+      return;
+    }
     try {
+      if (fingerprintAlreadyAnalyzedToday(incident.getFingerprintId(), ZoneId.systemDefault())) {
+        return;
+      }
       WebhookPayload payload =
           new WebhookPayload(
               incident.getAppId(),
@@ -450,6 +453,15 @@ public class IncidentService {
     } catch (Exception e) {
       log.warn("Webhook notification failed for incident {}", incident.getId(), e);
     }
+  }
+
+  private boolean fingerprintAlreadyAnalyzedToday(String fingerprintId, ZoneId serverZone) {
+    if (fingerprintId == null || fingerprintId.isBlank()) {
+      return false;
+    }
+    Instant startOfToday = LocalDate.now(serverZone).atStartOfDay(serverZone).toInstant();
+    return incidentRepository.existsByFingerprintIdAndStatusInAndCreatedAtGreaterThanEqual(
+        fingerprintId, ANALYZED_STATUSES, startOfToday);
   }
 
   private IncidentEntity loadIncidentOrThrow(String incidentId) {

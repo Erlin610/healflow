@@ -137,7 +137,7 @@ public class WebhookService {
   }
 
   JsonNode buildRequestBody(WebhookPayload payload, WebhookType type) {
-    String title = "[HEALFLOW] Incident " + safeStatus(payload.status());
+    String title = "[HEALFLOW] 异常事件 " + safeStatus(payload.status());
     return switch (type) {
       case DINGTALK -> buildDingTalkPayload(title, formatDetails(payload, "- ", "", ""));
       case WECOM -> buildWeComPayload(title, formatDetails(payload, "- ", "", ""));
@@ -199,24 +199,24 @@ public class WebhookService {
   private String formatDetails(WebhookPayload payload, String bulletPrefix, String labelStart, String labelEnd) {
     List<String> lines = new ArrayList<>();
     String status = safeStatus(payload.status());
-    String priority = payload.isRegression() ? "HIGH" : "NORMAL";
-    addLine(lines, bulletPrefix, labelStart, labelEnd, "Status", status);
-    addLine(lines, bulletPrefix, labelStart, labelEnd, "Priority", priority);
-    addLine(lines, bulletPrefix, labelStart, labelEnd, "App", payload.appId());
-    addLine(lines, bulletPrefix, labelStart, labelEnd, "Incident", payload.incidentId());
-    addLine(lines, bulletPrefix, labelStart, labelEnd, "Error", payload.errorType());
-    addLine(lines, bulletPrefix, labelStart, labelEnd, "Message", payload.errorMessage());
+    String priority = payload.isRegression() ? "高" : "普通";
+    addLine(lines, bulletPrefix, labelStart, labelEnd, "状态", status);
+    addLine(lines, bulletPrefix, labelStart, labelEnd, "优先级", priority);
+    addLine(lines, bulletPrefix, labelStart, labelEnd, "应用", payload.appId());
+    addLine(lines, bulletPrefix, labelStart, labelEnd, "事件ID", payload.incidentId());
+    addLine(lines, bulletPrefix, labelStart, labelEnd, "异常类型", payload.errorType());
+    addLine(lines, bulletPrefix, labelStart, labelEnd, "异常信息", payload.errorMessage());
     Instant occurredAt = payload.occurredAt();
     if (occurredAt != null) {
-      addLine(lines, bulletPrefix, labelStart, labelEnd, "Occurred", occurredAt.toString());
+      addLine(lines, bulletPrefix, labelStart, labelEnd, "发生时间", occurredAt.toString());
     }
     if (payload.hasAnalysis()) {
       WebhookPayload.AnalysisInfo analysis = payload.analysis();
-      addLine(lines, bulletPrefix, labelStart, labelEnd, "Session", analysis.sessionId());
-      addLine(lines, bulletPrefix, labelStart, labelEnd, "Severity", analysis.severity());
-      addLine(lines, bulletPrefix, labelStart, labelEnd, "Root Cause", analysis.rootCause());
-      addLine(lines, bulletPrefix, labelStart, labelEnd, "Summary", analysis.summary());
-      addLine(lines, bulletPrefix, labelStart, labelEnd, "Details", analysis.detailUrl());
+      addLine(lines, bulletPrefix, labelStart, labelEnd, "会话ID", analysis.sessionId());
+      addLine(lines, bulletPrefix, labelStart, labelEnd, "严重程度", formatSeverity(analysis.severity()));
+      addLine(lines, bulletPrefix, labelStart, labelEnd, "根因", analysis.rootCause());
+      addLine(lines, bulletPrefix, labelStart, labelEnd, "摘要", analysis.summary());
+      addLine(lines, bulletPrefix, labelStart, labelEnd, "详情", analysis.detailUrl());
     }
     return String.join("\n", lines);
   }
@@ -353,7 +353,32 @@ public class WebhookService {
   }
 
   private static String safeStatus(IncidentStatus status) {
-    return status == null ? "UNKNOWN" : status.name();
+    if (status == null) {
+      return "未知";
+    }
+    return switch (status) {
+      case OPEN -> "待处理";
+      case SKIP -> "跳过";
+      case ANALYZING -> "分析中";
+      case PENDING_REVIEW -> "待审核";
+      case FIXED -> "已修复";
+      case REGRESSION -> "回归";
+      case IGNORED -> "已忽略";
+    };
+  }
+
+  private static String formatSeverity(String severity) {
+    String normalized = normalize(severity);
+    if (normalized == null) {
+      return null;
+    }
+    String upper = normalized.toUpperCase(Locale.ROOT);
+    return switch (upper) {
+      case "CRITICAL", "HIGH" -> "高";
+      case "MEDIUM" -> "中";
+      case "LOW" -> "低";
+      default -> normalized;
+    };
   }
 
   private static WebhookType resolveType(String webhookUrl) {

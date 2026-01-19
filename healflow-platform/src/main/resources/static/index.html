@@ -80,9 +80,12 @@
                         <select id="filter-status" class="text-sm border-gray-300 rounded-md px-3 py-1.5">
                             <option value="">全部状态</option>
                             <option value="OPEN">待处理</option>
+                            <option value="SKIP">跳过</option>
                             <option value="ANALYZING">分析中</option>
                             <option value="PENDING_REVIEW">待审核</option>
                             <option value="FIXED">已修复</option>
+                            <option value="REGRESSION">回归</option>
+                            <option value="IGNORED">已忽略</option>
                         </select>
                         <button id="btn-refresh" class="p-1.5 text-gray-500 hover:text-brand-600 bg-white border border-gray-300 rounded">刷新</button>
                         <button id="btn-clear-all" class="flex items-center gap-1.5 px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white rounded text-sm font-medium" title="清空所有">
@@ -509,6 +512,19 @@
         return s.substring(0, 4) + '...' + s.substring(s.length - 4);
     }
 
+    function formatStatus(status) {
+        var map = {
+            'OPEN': '待处理',
+            'SKIP': '跳过',
+            'ANALYZING': '分析中',
+            'PENDING_REVIEW': '待审核',
+            'FIXED': '已修复',
+            'REGRESSION': '回归',
+            'IGNORED': '已忽略'
+        };
+        return map[status] || status || '-';
+    }
+
     function renderIncidentTable(incidents) {
         var body = document.getElementById('incident-list-body');
         if (!incidents || incidents.length === 0) {
@@ -523,7 +539,7 @@
             var fingerprintDisplay = truncateFingerprint(fullFingerprint);
             var fingerprintTitle = fullFingerprint || 'N/A';
             return '<div class="grid grid-cols-12 gap-4 px-6 py-4 hover:bg-gray-50 cursor-pointer items-center incident-row" data-id="' + inc.id + '">' +
-                '<div class="col-span-1"><span class="px-2 py-1 rounded-full text-xs font-semibold ' + color + '">' + inc.status + '</span></div>' +
+                '<div class="col-span-1"><span class="px-2 py-1 rounded-full text-xs font-semibold ' + color + '">' + formatStatus(inc.status) + '</span></div>' +
                 '<div class="col-span-2 text-sm font-mono text-gray-600" title="' + fingerprintTitle + '">' + fingerprintDisplay + '</div>' +
                 '<div class="col-span-4"><div class="text-sm font-medium text-danger truncate">' + (inc.errorType || 'Unknown') + '</div><div class="text-xs text-gray-500 truncate">' + (inc.errorMessage || '') + '</div></div>' +
                 '<div class="col-span-2 text-sm text-gray-600">' + inc.appId + '</div>' +
@@ -584,7 +600,7 @@
         var timeline = document.getElementById('wb-timeline');
         timeline.innerHTML = '<div class="text-xs text-gray-500">' + new Date(inc.createdAt).toLocaleTimeString() + '</div><div class="text-sm">异常创建</div>';
         if (inc.statusChangedAt) {
-            timeline.innerHTML += '<div class="mt-3 text-xs text-gray-500">' + new Date(inc.statusChangedAt).toLocaleTimeString() + '</div><div class="text-sm">状态变更: ' + inc.status + '</div>';
+            timeline.innerHTML += '<div class="mt-3 text-xs text-gray-500">' + new Date(inc.statusChangedAt).toLocaleTimeString() + '</div><div class="text-sm">状态变更: ' + formatStatus(inc.status) + '</div>';
         }
         switchTab('stack');
     }

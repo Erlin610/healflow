@@ -4,8 +4,10 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -17,6 +19,7 @@ import com.healflow.engine.git.GitWorkspaceManager;
 import com.healflow.engine.sandbox.DockerSandboxManager;
 import com.healflow.platform.dto.WebhookPayload;
 import com.healflow.platform.entity.ApplicationEntity;
+import com.healflow.platform.entity.ErrorFingerprintEntity;
 import com.healflow.platform.entity.IncidentEntity;
 import com.healflow.platform.repository.ApplicationRepository;
 import com.healflow.platform.repository.IncidentRepository;
@@ -37,8 +40,8 @@ class WebhookServiceTest {
     JsonNode body = service.buildRequestBody(payload, WebhookService.WebhookType.DINGTALK);
 
     assertEquals("markdown", body.get("msgtype").asText());
-    assertEquals("[HEALFLOW] Incident OPEN", body.get("markdown").get("title").asText());
-    assertTrue(body.get("markdown").get("text").asText().contains("Priority: NORMAL"));
+    assertEquals("[HEALFLOW] 异常事件 待处理", body.get("markdown").get("title").asText());
+    assertTrue(body.get("markdown").get("text").asText().contains("优先级: 普通"));
   }
 
   @Test
@@ -51,7 +54,7 @@ class WebhookServiceTest {
     assertEquals("interactive", body.get("msg_type").asText());
     JsonNode header = body.get("card").get("header").get("title");
     assertEquals("plain_text", header.get("tag").asText());
-    assertEquals("[HEALFLOW] Incident OPEN", header.get("content").asText());
+    assertEquals("[HEALFLOW] 异常事件 待处理", header.get("content").asText());
     assertEquals("lark_md", body.get("card").get("elements").get(0).get("text").get("tag").asText());
   }
 
@@ -97,8 +100,8 @@ class WebhookServiceTest {
     JsonNode markdown = payload.get("markdown");
     assertTrue(markdown.hasNonNull("content"));
     String content = markdown.get("content").asText();
-    assertTrue(content.contains("### [HEALFLOW] Incident OPEN"));
-    assertTrue(content.contains("Priority: NORMAL"));
+    assertTrue(content.contains("### [HEALFLOW] 异常事件 待处理"));
+    assertTrue(content.contains("优先级: 普通"));
     assertFalse(markdown.has("text"));
   }
 
@@ -112,7 +115,7 @@ class WebhookServiceTest {
 
     JsonNode payload = OBJECT_MAPPER.readTree(sender.lastPayload());
     String text = payload.get("blocks").get(1).get("text").get("text").asText();
-    assertTrue(text.contains("*Priority*: HIGH"));
+    assertTrue(text.contains("*优先级*: 高"));
   }
 
   @Test
@@ -145,8 +148,16 @@ class WebhookServiceTest {
     GitWorkspaceManager gitManager = mock(GitWorkspaceManager.class);
     DockerSandboxManager dockerSandboxManager = mock(DockerSandboxManager.class);
     FingerprintService fingerprintService = mock(FingerprintService.class);
+    when(fingerprintService.recordOccurrence(anyString(), anyString()))
+        .thenReturn(new ErrorFingerprintEntity("fp-1", Instant.parse("2026-01-05T00:00:00Z")));
+    ApplicationService applicationService = mock(ApplicationService.class);
+    when(applicationService.getApplication("app-1"))
+        .thenReturn(
+            new ApplicationService.ApplicationResponse(
+                "app-1", null, null, null, null, false, false, false, null));
     IncidentService service =
-        new IncidentService(gitManager, dockerSandboxManager, incidentRepository, fingerprintService, mock(ApplicationService.class), "sandbox", "ai", "");
+        new IncidentService(
+            gitManager, dockerSandboxManager, incidentRepository, fingerprintService, applicationService, "sandbox", "ai", "");
     WebhookService webhookService = mock(WebhookService.class);
     service.setWebhookService(webhookService);
 
@@ -199,8 +210,7 @@ class WebhookServiceTest {
     IncidentEntity updated = invokeFindOrCreateIncident(service, "inc-fixed", report);
 
     assertEquals(IncidentStatus.REGRESSION, updated.getStatus());
-    verify(webhookService)
-        .notifyIncident(argThat(payload -> payload.status() == IncidentStatus.REGRESSION));
+    verify(webhookService, never()).notifyIncident(any());
   }
 
   @Test
@@ -221,9 +231,9 @@ class WebhookServiceTest {
 
     JsonNode payload = OBJECT_MAPPER.readTree(sender.lastPayload());
     String text = payload.get("blocks").get(1).get("text").get("text").asText();
-    assertTrue(text.contains("*Severity*: HIGH"));
-    assertTrue(text.contains("*Root Cause*: Uninitialized variable"));
-    assertTrue(text.contains("*Details*: https://platform.example/api/v1/incidents/inc-1"));
+    assertTrue(text.contains("*严重程度*: 高"));
+    assertTrue(text.contains("*根因*: Uninitialized variable"));
+    assertTrue(text.contains("*详情*: https://platform.example/api/v1/incidents/inc-1"));
   }
 
   private static WebhookPayload samplePayload(IncidentStatus status) {
