@@ -22,16 +22,23 @@ import com.healflow.platform.repository.IncidentRepository;
 import java.io.File;
 import java.time.Instant;
 import java.time.Duration;
+import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.List;
 import java.util.Map;
 import java.nio.file.Path;
+import java.util.Objects;
 import java.util.Optional;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.ApplicationContext;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 @Service
 public class IncidentService {
@@ -41,6 +48,8 @@ public class IncidentService {
   private static final String CONTAINER_WORKSPACE = "/src";
   private static final String CONTAINER_SCRIPT_PATH = CONTAINER_WORKSPACE + "/" + MOCK_AGENT_SCRIPT_NAME;
   private static final Duration MOCK_AGENT_TIMEOUT = Duration.ofSeconds(60);
+  private static final List<IncidentStatus> ANALYZED_STATUSES =
+      List.of(IncidentStatus.PENDING_REVIEW, IncidentStatus.FIXED, IncidentStatus.IGNORED);
 
   private final GitWorkspaceManager gitManager;
   private final DockerSandboxManager dockerSandboxManager;
@@ -51,6 +60,7 @@ public class IncidentService {
   private final String aiAgentImage;
   private final ObjectMapper objectMapper;
   private final JGitManager jGitManager;
+  private ApplicationContext applicationContext;
   private WebhookService webhookService;
 
   public IncidentService(
@@ -73,11 +83,17 @@ public class IncidentService {
     this.jGitManager = new JGitManager(gitToken);
   }
 
+  @Autowired
+  void setApplicationContext(ApplicationContext applicationContext) {
+    this.applicationContext = applicationContext;
+  }
+
   @Autowired(required = false)
   void setWebhookService(WebhookService webhookService) {
     this.webhookService = webhookService;
   }
 
+  @Transactional
   public String createIncident(IncidentReport report) {
     log.info("Creating incident for app: {}", report.appId());
 
@@ -101,7 +117,102 @@ public class IncidentService {
     log.info("Incident created with ID: {}, fingerprint: {}, occurrenceCount: {}",
         incidentId, fingerprint.getFingerprint(), fingerprint.getOccurrenceCount());
 
+    // Trigger auto-analysis if enabled
+    triggerAutoAnalysisIfEnabledAfterCommit(incident, report);
+
     return incidentId;
+  }
+
+  private void triggerAutoAnalysisIfEnabledAfterCommit(IncidentEntity incident, IncidentReport report) {
+    if (applicationContext == null) {
+      // Tests may instantiate IncidentService directly; keep behavior reasonable.
+      triggerAutoAnalysisIfEnabled(incident, report);
+      return;
+    }
+
+    IncidentService self = applicationContext.getBean(IncidentService.class);
+    if (!TransactionSynchronizationManager.isSynchronizationActive()) {
+      self.triggerAutoAnalysisIfEnabled(incident, report);
+      return;
+    }
+
+    TransactionSynchronizationManager.registerSynchronization(
+        new TransactionSynchronization() {
+          @Override
+          public void afterCommit() {
+            try {
+              self.triggerAutoAnalysisIfEnabled(incident, report);
+            } catch (Exception e) {
+              log.error("Failed to trigger auto-analysis for incident: {}", incident.getId(), e);
+            }
+          }
+        });
+  }
+
+  @Async
+  @Transactional
+  public void triggerAutoAnalysisIfEnabled(IncidentEntity incident, IncidentReport report) {
+    if (incident == null || report == null) {
+      return;
+    }
+
+    String incidentId = incident.getId();
+    String appId = incident.getAppId();
+    String fingerprintId = incident.getFingerprintId();
+
+    try {
+      ApplicationService.ApplicationResponse app = applicationService.getApplication(appId);
+      if (!app.autoAnalyze()) {
+        log.debug("Auto-analyze disabled for app: {}", appId);
+        return;
+      }
+
+      ZoneId serverZone = ZoneId.systemDefault();
+      Instant startOfToday = LocalDate.now(serverZone).atStartOfDay(serverZone).toInstant();
+      if (incidentRepository.existsByFingerprintIdAndStatusInAndCreatedAtGreaterThanEqual(
+          fingerprintId, ANALYZED_STATUSES, startOfToday)) {
+        log.info("Fingerprint {} already analyzed today, skipping auto-analysis for incident {}",
+            fingerprintId, incidentId);
+        incidentRepository.findById(incidentId).ifPresent(current -> {
+          if (current.getStatus() == IncidentStatus.OPEN) {
+            current.setStatus(IncidentStatus.SKIP);
+            incidentRepository.save(current);
+          }
+        });
+        return;
+      }
+
+      Optional<IncidentEntity> analyzingIncident = incidentRepository
+          .findFirstByFingerprintIdAndStatusWithLock(fingerprintId, IncidentStatus.ANALYZING);
+
+      if (analyzingIncident.isPresent()) {
+        log.info("Fingerprint {} already being analyzed by incident {}, marking current as ANALYZING",
+            fingerprintId, analyzingIncident.get().getId());
+        incidentRepository.findById(incidentId).ifPresent(current -> {
+          current.setStatus(IncidentStatus.ANALYZING);
+          incidentRepository.save(current);
+        });
+        return;
+      }
+
+      log.info("Triggering auto-analysis for incident: {}", incidentId);
+      if (applicationContext == null) {
+        analyzeIncident(incidentId, report);
+        return;
+      }
+      applicationContext.getBean(IncidentService.class).startAutoAnalysis(incidentId, report);
+    } catch (Exception e) {
+      log.error("Failed to trigger auto-analysis for incident: {}", incidentId, e);
+    }
+  }
+
+  @Async
+  public void startAutoAnalysis(String incidentId, IncidentReport report) {
+    try {
+      analyzeIncident(incidentId, report);
+    } catch (Exception e) {
+      log.error("Failed to trigger auto-analysis for incident: {}", incidentId, e);
+    }
   }
 
   private void ensureApplicationExists(IncidentReport report) {
@@ -174,10 +285,71 @@ public class IncidentService {
       transitionOrThrow(incident, IncidentStatus.PENDING_REVIEW);
       incident.setContainerName(containerName);
       incidentRepository.save(incident);
+      
+      // Share analysis result with all incidents of same fingerprint
+      shareAnalysisResultWithSameFingerprint(incident);
+      
       return result;
     } catch (RuntimeException e) {
       resetIncidentStatus(incident.getId(), IncidentStatus.OPEN);
+      // Reset all same fingerprint incidents back to OPEN
+      resetSameFingerprintIncidents(incident.getFingerprintId(), IncidentStatus.OPEN);
       throw e;
+    }
+  }
+
+  private void shareAnalysisResultWithSameFingerprint(IncidentEntity sourceIncident) {
+    if (sourceIncident == null) {
+      return;
+    }
+
+    String fingerprintId = sourceIncident.getFingerprintId();
+    if (fingerprintId == null || fingerprintId.isBlank()) {
+      return;
+    }
+
+    String sourceErrorType = sourceIncident.getErrorType();
+    List<IncidentEntity> sameFingerprint = incidentRepository.findByFingerprintId(fingerprintId);
+
+    for (IncidentEntity incident : sameFingerprint) {
+      if (incident.getStatus() != IncidentStatus.ANALYZING) {
+        continue;
+      }
+      if (incident.getId().equals(sourceIncident.getId())) {
+        continue;
+      }
+
+      if (!Objects.equals(sourceErrorType, incident.getErrorType())) {
+        log.warn(
+            "Refusing to share analysis across different errorType (fingerprintId={}, from={}({}) to={}({}))",
+            fingerprintId,
+            sourceIncident.getId(),
+            sourceErrorType,
+            incident.getId(),
+            incident.getErrorType());
+        // Recovery path: do not keep it stuck in ANALYZING.
+        incident.setStatus(IncidentStatus.OPEN);
+        incidentRepository.save(incident);
+        continue;
+      }
+
+      incident.setSessionId(sourceIncident.getSessionId());
+      incident.setAnalysisResult(sourceIncident.getAnalysisResult());
+      incident.setContainerName(sourceIncident.getContainerName());
+      transitionOrThrow(incident, IncidentStatus.PENDING_REVIEW);
+      incidentRepository.save(incident);
+      log.info("Shared analysis result from {} to {}", sourceIncident.getId(), incident.getId());
+    }
+  }
+
+  private void resetSameFingerprintIncidents(String fingerprintId, IncidentStatus status) {
+    List<IncidentEntity> incidents = incidentRepository.findByFingerprintId(fingerprintId);
+    for (IncidentEntity incident : incidents) {
+      if (incident.getStatus() == IncidentStatus.ANALYZING) {
+        incident.setStatus(status);
+        incidentRepository.save(incident);
+        log.info("Reset incident {} to status {}", incident.getId(), status);
+      }
     }
   }
 
@@ -335,17 +507,28 @@ public class IncidentService {
     if (statusFilter != null && !statusFilter.isBlank()) {
       try {
         IncidentStatus status = IncidentStatus.valueOf(statusFilter.toUpperCase());
-        incidents = incidentRepository.findByStatus(status);
+        incidents = incidentRepository.findByStatusOrderByCreatedAtDesc(status);
       } catch (IllegalArgumentException e) {
-        incidents = incidentRepository.findAll();
+        incidents = incidentRepository.findAllByOrderByCreatedAtDesc();
       }
     } else {
-      incidents = incidentRepository.findAll();
+      incidents = incidentRepository.findAllByOrderByCreatedAtDesc();
     }
 
     return incidents.stream()
         .map(this::toMap)
         .toList();
+  }
+
+  @Transactional
+  public long deleteAllIncidents() {
+    long count = incidentRepository.count();
+    if (count == 0) {
+      return 0;
+    }
+
+    incidentRepository.deleteAllInBatch();
+    return count;
   }
 
   public Map<String, Object> getIncidentDetails(String incidentId) {
@@ -404,21 +587,26 @@ public class IncidentService {
 
       String jsonSchema = "{\"type\":\"object\",\"properties\":{\"bug_type\":{\"type\":\"string\"},\"severity\":{\"type\":\"string\",\"enum\":[\"critical\",\"high\",\"medium\",\"low\"]},\"root_cause\":{\"type\":\"string\"},\"affected_files\":{\"type\":\"array\",\"items\":{\"type\":\"string\"}},\"analysis\":{\"type\":\"string\"},\"solutions\":{\"type\":\"array\",\"items\":{\"type\":\"object\",\"properties\":{\"title\":{\"type\":\"string\"},\"description\":{\"type\":\"string\"},\"recommended\":{\"type\":\"boolean\"}},\"required\":[\"title\",\"description\"]}},\"confidence\":{\"type\":\"number\",\"minimum\":0,\"maximum\":1},\"questions\":{\"type\":\"array\",\"items\":{\"type\":\"object\",\"properties\":{\"question\":{\"type\":\"string\"},\"header\":{\"type\":\"string\"},\"multiSelect\":{\"type\":\"boolean\"},\"options\":{\"type\":\"array\",\"items\":{\"type\":\"object\",\"properties\":{\"label\":{\"type\":\"string\"},\"description\":{\"type\":\"string\"}},\"required\":[\"label\",\"description\"]}}},\"required\":[\"question\",\"header\",\"options\",\"multiSelect\"]}}},\"required\":[\"bug_type\",\"severity\",\"root_cause\",\"analysis\",\"confidence\"]}";
 
-      Path schemaFile = sourceCodePath.resolve("analysis-schema.json");
-      Path scriptFile = sourceCodePath.resolve("analyze-incident.sh");
-      Path logFile = sourceCodePath.resolve("analyze-incident.log");
+      String runId = Long.toString(System.nanoTime());
+      String schemaFileName = "analysis-schema-" + runId + ".json";
+      String scriptFileName = "analyze-incident-" + runId + ".sh";
+      String logFileName = "analyze-incident-" + runId + ".log";
+
+      Path schemaFile = sourceCodePath.resolve(schemaFileName);
+      Path scriptFile = sourceCodePath.resolve(scriptFileName);
+      Path logFile = sourceCodePath.resolve(logFileName);
 
       try {
         java.nio.file.Files.writeString(schemaFile, jsonSchema);
         String script = "#!/bin/sh\n" +
             "export IS_SANDBOX=1\n" +
             "export CLAUDE_CODE_DISABLE_COMMAND_INJECTION_CHECK=true\n" +
-            "SCHEMA=$(cat /src/analysis-schema.json)\n" +
+            "SCHEMA=$(cat /src/" + schemaFileName + ")\n" +
             "claude -p '" + prompt.replace("'", "'\\''") + "' " +
             "--allowedTools Read,Grep,Glob " +
             "--output-format json " +
-            "--json-schema \"$SCHEMA\" > /src/analyze-incident.log 2>&1\n" +
-            "echo \"Exit code: $?\" >> /src/analyze-incident.log\n";
+            "--json-schema \"$SCHEMA\" > /src/" + logFileName + " 2>&1\n" +
+            "echo \"Exit code: $?\" >> /src/" + logFileName + "\n";
         java.nio.file.Files.writeString(scriptFile, script);
 
         log.info("Executing Claude analysis in container: {}", containerName);
@@ -427,7 +615,7 @@ public class IncidentService {
         log.info("Container: {}", containerName);
         log.info("Workspace: {}", sourceCodePath);
         log.info("Script content:\n{}", script);
-        log.info("Docker command: docker run/exec -w /src {} sh /src/analyze-incident.sh", containerName);
+        log.info("Docker command: docker run/exec -w /src {} sh /src/{}", containerName, scriptFileName);
         log.info("Prompt: {}", prompt);
 
         CommandResult result = dockerSandboxManager.executeInteractiveRunInSandbox(
@@ -436,7 +624,7 @@ public class IncidentService {
             CONTAINER_WORKSPACE,
             aiAgentImage,
             Map.of(),
-            List.of("sh", "/src/analyze-incident.sh"),
+            List.of("sh", "/src/" + scriptFileName),
             Duration.ofMinutes(30),
             List.of()
         );
@@ -479,6 +667,7 @@ public class IncidentService {
       } finally {
         java.nio.file.Files.deleteIfExists(schemaFile);
         java.nio.file.Files.deleteIfExists(scriptFile);
+        java.nio.file.Files.deleteIfExists(logFile);
       }
 
     } catch (Exception e) {

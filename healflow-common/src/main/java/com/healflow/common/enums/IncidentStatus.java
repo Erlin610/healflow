@@ -2,6 +2,7 @@ package com.healflow.common.enums;
 
 public enum IncidentStatus {
   OPEN,
+  SKIP,
   ANALYZING,
   PENDING_REVIEW,
   FIXED,
@@ -13,7 +14,8 @@ public enum IncidentStatus {
       return false;
     }
     return switch (this) {
-      case OPEN -> target == ANALYZING || target == IGNORED;
+      case OPEN -> target == ANALYZING || target == IGNORED || target == SKIP;
+      case SKIP -> false;
       case ANALYZING -> target == PENDING_REVIEW || target == IGNORED;
       case PENDING_REVIEW -> target == FIXED || target == IGNORED;
       case FIXED -> target == REGRESSION;

@@ -14,7 +14,7 @@ import java.util.List;
 import java.util.Map;
 
 @RestController
-@RequestMapping("/api/v1/incidents")
+@RequestMapping({"/api/v1/incidents", "/api/incidents"})
 public class IncidentController {
 
     private static final Logger log = LoggerFactory.getLogger(IncidentController.class);
@@ -48,6 +48,13 @@ public class IncidentController {
         } catch (IllegalArgumentException e) {
             return ResponseEntity.notFound().build();
         }
+    }
+
+    @DeleteMapping("/all")
+    public ResponseEntity<Map<String, Object>> deleteAllIncidents() {
+        log.warn("Deleting all incidents");
+        long deletedCount = incidentService.deleteAllIncidents();
+        return ResponseEntity.ok(Map.of("deletedCount", deletedCount));
     }
 
     // ========== Phase 5: Multi-stage AI Workflow Endpoints ==========

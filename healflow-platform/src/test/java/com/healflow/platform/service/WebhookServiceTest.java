@@ -124,7 +124,7 @@ class WebhookServiceTest {
     DockerSandboxManager dockerSandboxManager = mock(DockerSandboxManager.class);
     FingerprintService fingerprintService = mock(FingerprintService.class);
     IncidentService service =
-        new IncidentService(gitManager, dockerSandboxManager, incidentRepository, fingerprintService, "sandbox", "ai", "");
+        new IncidentService(gitManager, dockerSandboxManager, incidentRepository, fingerprintService, mock(ApplicationService.class), "sandbox", "ai", "");
     WebhookService webhookService = mock(WebhookService.class);
     service.setWebhookService(webhookService);
 
@@ -159,7 +159,7 @@ class WebhookServiceTest {
     DockerSandboxManager dockerSandboxManager = mock(DockerSandboxManager.class);
     FingerprintService fingerprintService = mock(FingerprintService.class);
     IncidentService service =
-        new IncidentService(gitManager, dockerSandboxManager, incidentRepository, fingerprintService, "sandbox", "ai", "");
+        new IncidentService(gitManager, dockerSandboxManager, incidentRepository, fingerprintService, mock(ApplicationService.class), "sandbox", "ai", "");
     WebhookService webhookService = mock(WebhookService.class);
     service.setWebhookService(webhookService);
 

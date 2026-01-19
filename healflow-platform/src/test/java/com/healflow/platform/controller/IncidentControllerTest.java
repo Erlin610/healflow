@@ -2,10 +2,9 @@ package com.healflow.platform.controller;
 
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -54,9 +53,21 @@ class IncidentControllerTest {
                 .content(objectMapper.writeValueAsString(report)))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.incidentId").value("inc-123"))
-        .andExpect(jsonPath("$.status").value("WAITING"));
+        .andExpect(jsonPath("$.status").value("OPEN"));
 
     verify(incidentService).createIncident(report);
+  }
+
+  @Test
+  void deleteAllIncidentsDelegatesToService() throws Exception {
+    when(incidentService.deleteAllIncidents()).thenReturn(3L);
+
+    mockMvc
+        .perform(delete("/api/v1/incidents/all"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.deletedCount").value(3));
+
+    verify(incidentService).deleteAllIncidents();
   }
 
   @Test

@@ -103,7 +103,15 @@ class IncidentServiceTest {
         Mockito.mock(com.healflow.engine.sandbox.DockerSandboxManager.class);
     FingerprintService fingerprintService = Mockito.mock(FingerprintService.class);
     IncidentService service =
-        new IncidentService(gitManager, dockerSandboxManager, incidentRepository, fingerprintService, "sandbox", "ai-image", "");
+        new IncidentService(
+            gitManager,
+            dockerSandboxManager,
+            incidentRepository,
+            fingerprintService,
+            Mockito.mock(ApplicationService.class),
+            "sandbox",
+            "ai-image",
+            "");
 
     try {
       System.setProperty("user.home", home.toString());
@@ -171,7 +179,9 @@ class IncidentServiceTest {
 
       @SuppressWarnings("unchecked")
       List<String> argv = argvCaptor.getValue();
-      assertEquals(List.of("sh", "/src/analyze-incident.sh"), argv);
+      assertEquals("sh", argv.get(0));
+      assertTrue(argv.get(1).startsWith("/src/analyze-incident-"));
+      assertTrue(argv.get(1).endsWith(".sh"));
     } finally {
       if (previousUserHome == null) {
         System.clearProperty("user.home");
@@ -290,7 +300,16 @@ class IncidentServiceTest {
     DockerSandboxManager dockerSandboxManager = Mockito.mock(DockerSandboxManager.class);
     FingerprintService fingerprintService = Mockito.mock(FingerprintService.class);
     IncidentService service =
-        Mockito.spy(new IncidentService(gitManager, dockerSandboxManager, incidentRepository, fingerprintService, "sandbox", "ai", ""));
+        Mockito.spy(
+            new IncidentService(
+                gitManager,
+                dockerSandboxManager,
+                incidentRepository,
+                fingerprintService,
+                Mockito.mock(ApplicationService.class),
+                "sandbox",
+                "ai",
+                ""));
 
     IncidentReport report =
         new IncidentReport(
@@ -336,7 +355,16 @@ class IncidentServiceTest {
     DockerSandboxManager dockerSandboxManager = Mockito.mock(DockerSandboxManager.class);
     FingerprintService fingerprintService = Mockito.mock(FingerprintService.class);
     IncidentService service =
-        Mockito.spy(new IncidentService(gitManager, dockerSandboxManager, incidentRepository, fingerprintService, "sandbox", "ai", ""));
+        Mockito.spy(
+            new IncidentService(
+                gitManager,
+                dockerSandboxManager,
+                incidentRepository,
+                fingerprintService,
+                Mockito.mock(ApplicationService.class),
+                "sandbox",
+                "ai",
+                ""));
 
     IncidentReport report =
         new IncidentReport(
@@ -373,7 +401,7 @@ class IncidentServiceTest {
     DockerSandboxManager dockerSandboxManager = Mockito.mock(DockerSandboxManager.class);
     FingerprintService fingerprintService = Mockito.mock(FingerprintService.class);
     IncidentService service =
-        new IncidentService(gitManager, dockerSandboxManager, incidentRepository, fingerprintService, "sandbox", "ai", "");
+        new IncidentService(gitManager, dockerSandboxManager, incidentRepository, fingerprintService, Mockito.mock(ApplicationService.class), "sandbox", "ai", "");
 
     IncidentReport report =
         new IncidentReport(
@@ -399,7 +427,7 @@ class IncidentServiceTest {
     DockerSandboxManager dockerSandboxManager = Mockito.mock(DockerSandboxManager.class);
     FingerprintService fingerprintService = Mockito.mock(FingerprintService.class);
     IncidentService service =
-        new IncidentService(gitManager, dockerSandboxManager, incidentRepository, fingerprintService, "sandbox", "ai", "");
+        new IncidentService(gitManager, dockerSandboxManager, incidentRepository, fingerprintService, Mockito.mock(ApplicationService.class), "sandbox", "ai", "");
 
     IncidentReport report =
         new IncidentReport(
@@ -423,7 +451,7 @@ class IncidentServiceTest {
     DockerSandboxManager dockerSandboxManager = Mockito.mock(DockerSandboxManager.class);
     FingerprintService fingerprintService = Mockito.mock(FingerprintService.class);
     IncidentService service =
-        new IncidentService(gitManager, dockerSandboxManager, incidentRepository, fingerprintService, "sandbox", "ai", "");
+        new IncidentService(gitManager, dockerSandboxManager, incidentRepository, fingerprintService, Mockito.mock(ApplicationService.class), "sandbox", "ai", "");
 
     IncidentReport report =
         new IncidentReport(
@@ -449,7 +477,7 @@ class IncidentServiceTest {
     DockerSandboxManager dockerSandboxManager = Mockito.mock(DockerSandboxManager.class);
     FingerprintService fingerprintService = Mockito.mock(FingerprintService.class);
     IncidentService service =
-        new IncidentService(gitManager, dockerSandboxManager, incidentRepository, fingerprintService, "sandbox", "ai", "");
+        new IncidentService(gitManager, dockerSandboxManager, incidentRepository, fingerprintService, Mockito.mock(ApplicationService.class), "sandbox", "ai", "");
 
     assertThrows(IllegalArgumentException.class, () -> service.generateFix("missing"));
   }
@@ -462,7 +490,7 @@ class IncidentServiceTest {
     DockerSandboxManager dockerSandboxManager = Mockito.mock(DockerSandboxManager.class);
     FingerprintService fingerprintService = Mockito.mock(FingerprintService.class);
     IncidentService service =
-        Mockito.spy(new IncidentService(gitManager, dockerSandboxManager, incidentRepository, fingerprintService, "sandbox", "ai", ""));
+        Mockito.spy(new IncidentService(gitManager, dockerSandboxManager, incidentRepository, fingerprintService, Mockito.mock(ApplicationService.class), "sandbox", "ai", ""));
 
     IncidentReport report =
         new IncidentReport(
@@ -496,7 +524,7 @@ class IncidentServiceTest {
     DockerSandboxManager dockerSandboxManager = Mockito.mock(DockerSandboxManager.class);
     FingerprintService fingerprintService = Mockito.mock(FingerprintService.class);
     IncidentService service =
-        Mockito.spy(new IncidentService(gitManager, dockerSandboxManager, incidentRepository, fingerprintService, "sandbox", "ai", ""));
+        Mockito.spy(new IncidentService(gitManager, dockerSandboxManager, incidentRepository, fingerprintService, Mockito.mock(ApplicationService.class), "sandbox", "ai", ""));
 
     Path workspace = Path.of("build-scratch/workspace");
     Mockito.when(gitManager.prepareWorkspace("app-2", "https://example.invalid/repo.git", "main"))
@@ -538,7 +566,7 @@ class IncidentServiceTest {
     DockerSandboxManager dockerSandboxManager = Mockito.mock(DockerSandboxManager.class);
     FingerprintService fingerprintService = Mockito.mock(FingerprintService.class);
     IncidentService service =
-        Mockito.spy(new IncidentService(gitManager, dockerSandboxManager, incidentRepository, fingerprintService, "sandbox", "ai", ""));
+        Mockito.spy(new IncidentService(gitManager, dockerSandboxManager, incidentRepository, fingerprintService, Mockito.mock(ApplicationService.class), "sandbox", "ai", ""));
 
     Path workspace = Path.of("build-scratch/workspace");
     Mockito.when(gitManager.prepareWorkspace("app-2", "https://example.invalid/repo.git", "main"))
@@ -565,7 +593,7 @@ class IncidentServiceTest {
     DockerSandboxManager dockerSandboxManager = Mockito.mock(DockerSandboxManager.class);
     FingerprintService fingerprintService = Mockito.mock(FingerprintService.class);
     IncidentService service =
-        Mockito.spy(new IncidentService(gitManager, dockerSandboxManager, incidentRepository, fingerprintService, "sandbox", "ai", ""));
+        Mockito.spy(new IncidentService(gitManager, dockerSandboxManager, incidentRepository, fingerprintService, Mockito.mock(ApplicationService.class), "sandbox", "ai", ""));
 
     Path workspace = Path.of("build-scratch/workspace");
     Mockito.when(gitManager.prepareWorkspace("app-2", "https://example.invalid/repo.git", "main"))
@@ -587,7 +615,7 @@ class IncidentServiceTest {
     DockerSandboxManager dockerSandboxManager = Mockito.mock(DockerSandboxManager.class);
     FingerprintService fingerprintService = Mockito.mock(FingerprintService.class);
     IncidentService service =
-        new IncidentService(gitManager, dockerSandboxManager, incidentRepository, fingerprintService, "sandbox", "ai", "");
+        new IncidentService(gitManager, dockerSandboxManager, incidentRepository, fingerprintService, Mockito.mock(ApplicationService.class), "sandbox", "ai", "");
 
     assertThrows(IllegalStateException.class, () -> service.generateFix("inc-3"));
     assertEquals(IncidentStatus.OPEN, incidentRepository.findById("inc-3").orElseThrow().getStatus());
@@ -605,7 +633,7 @@ class IncidentServiceTest {
     DockerSandboxManager dockerSandboxManager = Mockito.mock(DockerSandboxManager.class);
     FingerprintService fingerprintService = Mockito.mock(FingerprintService.class);
     IncidentService service =
-        new IncidentService(gitManager, dockerSandboxManager, incidentRepository, fingerprintService, "sandbox", "ai", "");
+        new IncidentService(gitManager, dockerSandboxManager, incidentRepository, fingerprintService, Mockito.mock(ApplicationService.class), "sandbox", "ai", "");
 
     assertThrows(IllegalStateException.class, () -> service.generateFix("inc-missing"));
   }
@@ -623,7 +651,7 @@ class IncidentServiceTest {
     DockerSandboxManager dockerSandboxManager = Mockito.mock(DockerSandboxManager.class);
     FingerprintService fingerprintService = Mockito.mock(FingerprintService.class);
     IncidentService service =
-        new IncidentService(gitManager, dockerSandboxManager, incidentRepository, fingerprintService, "sandbox", "ai", "");
+        new IncidentService(gitManager, dockerSandboxManager, incidentRepository, fingerprintService, Mockito.mock(ApplicationService.class), "sandbox", "ai", "");
 
     assertThrows(IllegalStateException.class, () -> service.generateFix("inc-no-session"));
   }
@@ -642,7 +670,7 @@ class IncidentServiceTest {
     DockerSandboxManager dockerSandboxManager = Mockito.mock(DockerSandboxManager.class);
     FingerprintService fingerprintService = Mockito.mock(FingerprintService.class);
     IncidentService service =
-        new IncidentService(gitManager, dockerSandboxManager, incidentRepository, fingerprintService, "sandbox", "ai", "");
+        new IncidentService(gitManager, dockerSandboxManager, incidentRepository, fingerprintService, Mockito.mock(ApplicationService.class), "sandbox", "ai", "");
 
     assertThrows(IllegalStateException.class, () -> service.applyFix("inc-not-fixing"));
   }
@@ -691,6 +719,7 @@ class IncidentServiceTest {
             dockerSandboxManager,
             Mockito.mock(com.healflow.platform.repository.IncidentRepository.class),
             fingerprintService,
+            Mockito.mock(ApplicationService.class),
             "sandbox-image",
             "ai-image",
             "");
@@ -726,6 +755,7 @@ class IncidentServiceTest {
             dockerSandboxManager,
             Mockito.mock(com.healflow.platform.repository.IncidentRepository.class),
             fingerprintService,
+            Mockito.mock(ApplicationService.class),
             "sandbox-image",
             "ai-image",
             "");
@@ -795,7 +825,9 @@ class IncidentServiceTest {
 
       @SuppressWarnings("unchecked")
       List<String> argv = argvCaptor.getValue();
-      assertEquals(List.of("sh", "/src/analyze-incident.sh"), argv);
+      assertEquals("sh", argv.get(0));
+      assertTrue(argv.get(1).startsWith("/src/analyze-incident-"));
+      assertTrue(argv.get(1).endsWith(".sh"));
     } finally {
       if (previousUserHome == null) {
         System.clearProperty("user.home");
@@ -821,6 +853,7 @@ class IncidentServiceTest {
             dockerSandboxManager,
             Mockito.mock(com.healflow.platform.repository.IncidentRepository.class),
             fingerprintService,
+            Mockito.mock(ApplicationService.class),
             "sandbox-image",
             "ai-image",
             "");
@@ -903,6 +936,7 @@ class IncidentServiceTest {
             dockerSandboxManager,
             Mockito.mock(com.healflow.platform.repository.IncidentRepository.class),
             fingerprintService,
+            Mockito.mock(ApplicationService.class),
             "sandbox-image",
             "ai-image",
             "");
@@ -982,6 +1016,7 @@ class IncidentServiceTest {
             dockerSandboxManager,
             Mockito.mock(com.healflow.platform.repository.IncidentRepository.class),
             fingerprintService,
+            Mockito.mock(ApplicationService.class),
             "sandbox-image",
             "ai-image",
             "");
@@ -1020,6 +1055,7 @@ class IncidentServiceTest {
             dockerSandboxManager,
             Mockito.mock(com.healflow.platform.repository.IncidentRepository.class),
             fingerprintService,
+            Mockito.mock(ApplicationService.class),
             "sandbox-image",
             "ai-image",
             "");
@@ -1059,6 +1095,7 @@ class IncidentServiceTest {
             dockerSandboxManager,
             Mockito.mock(com.healflow.platform.repository.IncidentRepository.class),
             fingerprintService,
+            Mockito.mock(ApplicationService.class),
             "sandbox-image",
             "ai-image",
             "");
