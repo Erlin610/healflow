@@ -9,9 +9,21 @@ public record WebhookPayload(
     IncidentStatus status,
     String errorType,
     String errorMessage,
-    Instant occurredAt) {
+    Instant occurredAt,
+    AnalysisInfo analysis) {
+
+  public record AnalysisInfo(
+      String sessionId,
+      String rootCause,
+      String summary,
+      String severity,
+      String detailUrl) {}
 
   public boolean isRegression() {
     return status == IncidentStatus.REGRESSION;
+  }
+
+  public boolean hasAnalysis() {
+    return analysis != null;
   }
 }

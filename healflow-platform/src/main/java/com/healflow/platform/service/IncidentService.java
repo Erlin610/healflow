@@ -288,7 +288,15 @@ public class IncidentService {
       
       // Share analysis result with all incidents of same fingerprint
       shareAnalysisResultWithSameFingerprint(incident);
-      
+
+      if (webhookService != null) {
+        try {
+          webhookService.notifyAnalysisComplete(incident);
+        } catch (Exception e) {
+          log.warn("Webhook notification failed for analysis completion {}", incident.getId(), e);
+        }
+      }
+       
       return result;
     } catch (RuntimeException e) {
       resetIncidentStatus(incident.getId(), IncidentStatus.OPEN);
@@ -436,7 +444,8 @@ public class IncidentService {
               incident.getStatus(),
               report.errorType(),
               report.errorMessage(),
-              report.occurredAt());
+              report.occurredAt(),
+              null);
       webhookService.notifyIncident(payload);
     } catch (Exception e) {
       log.warn("Webhook notification failed for incident {}", incident.getId(), e);

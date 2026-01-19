@@ -1,6 +1,7 @@
 package com.healflow.platform.service;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.argThat;
@@ -78,6 +79,27 @@ class WebhookServiceTest {
     assertEquals("https://hooks.slack.com/services/abc", sender.lastUrl());
     JsonNode payload = OBJECT_MAPPER.readTree(sender.lastPayload());
     assertEquals("header", payload.get("blocks").get(0).get("type").asText());
+  }
+
+  @Test
+  void notifyIncidentBuildsWeComMarkdownContentPayload() throws Exception {
+    ApplicationRepository repository =
+        repositoryWithWebhook("app-1", "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=abc");
+    CapturingHttpSender sender = new CapturingHttpSender(200);
+    WebhookService service = newWebhookService(repository, sender);
+
+    service.notifyIncident(samplePayload(IncidentStatus.OPEN));
+
+    assertEquals(1, sender.attempts());
+    JsonNode payload = OBJECT_MAPPER.readTree(sender.lastPayload());
+    assertEquals("markdown", payload.get("msgtype").asText());
+    assertTrue(payload.hasNonNull("markdown"));
+    JsonNode markdown = payload.get("markdown");
+    assertTrue(markdown.hasNonNull("content"));
+    String content = markdown.get("content").asText();
+    assertTrue(content.contains("### [HEALFLOW] Incident OPEN"));
+    assertTrue(content.contains("Priority: NORMAL"));
+    assertFalse(markdown.has("text"));
   }
 
   @Test
@@ -181,6 +203,29 @@ class WebhookServiceTest {
         .notifyIncident(argThat(payload -> payload.status() == IncidentStatus.REGRESSION));
   }
 
+  @Test
+  void notifyAnalysisCompleteIncludesRootCauseAndDetailUrl() throws Exception {
+    ApplicationRepository repository = repositoryWithWebhook("app-1", "https://hooks.slack.com/services/abc");
+    CapturingHttpSender sender = new CapturingHttpSender(200);
+    WebhookService service =
+        new WebhookService(repository, OBJECT_MAPPER, sender, true, "https://platform.example", 1, 0);
+
+    IncidentEntity incident = new IncidentEntity("inc-1", "app-1", IncidentStatus.PENDING_REVIEW);
+    incident.setSessionId("sess-123");
+    incident.setErrorType("NullPointerException");
+    incident.setErrorMessage("boom");
+    incident.setAnalysisResult(
+        "{\"severity\":\"high\",\"root_cause\":\"Uninitialized variable\",\"analysis\":\"The error occurs because...\"}");
+
+    service.notifyAnalysisComplete(incident);
+
+    JsonNode payload = OBJECT_MAPPER.readTree(sender.lastPayload());
+    String text = payload.get("blocks").get(1).get("text").get("text").asText();
+    assertTrue(text.contains("*Severity*: HIGH"));
+    assertTrue(text.contains("*Root Cause*: Uninitialized variable"));
+    assertTrue(text.contains("*Details*: https://platform.example/api/v1/incidents/inc-1"));
+  }
+
   private static WebhookPayload samplePayload(IncidentStatus status) {
     return new WebhookPayload(
         "app-1",
@@ -188,7 +233,8 @@ class WebhookServiceTest {
         status,
         "NullPointerException",
         "boom",
-        Instant.parse("2026-01-05T00:00:00Z"));
+        Instant.parse("2026-01-05T00:00:00Z"),
+        null);
   }
 
   private static WebhookService newWebhookService(
@@ -203,7 +249,7 @@ class WebhookServiceTest {
       int maxAttempts,
       long baseBackoffMillis) {
     return new WebhookService(
-        repository, OBJECT_MAPPER, sender, notifyOnRegression, maxAttempts, baseBackoffMillis);
+        repository, OBJECT_MAPPER, sender, notifyOnRegression, "", maxAttempts, baseBackoffMillis);
   }
 
   private static ApplicationRepository repositoryWithWebhook(String appId, String webhookUrl) {

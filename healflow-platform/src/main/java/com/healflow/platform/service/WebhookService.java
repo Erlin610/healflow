@@ -7,6 +7,7 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.healflow.common.enums.IncidentStatus;
 import com.healflow.platform.dto.WebhookPayload;
 import com.healflow.platform.entity.ApplicationEntity;
+import com.healflow.platform.entity.IncidentEntity;
 import com.healflow.platform.repository.ApplicationRepository;
 import java.io.IOException;
 import java.net.URI;
@@ -36,6 +37,7 @@ public class WebhookService {
   private final ObjectMapper objectMapper;
   private final HttpSender httpSender;
   private final boolean notifyOnRegression;
+  private final String platformBaseUrl;
   private final int maxAttempts;
   private final long baseBackoffMillis;
 
@@ -43,8 +45,16 @@ public class WebhookService {
   public WebhookService(
       ApplicationRepository applicationRepository,
       ObjectMapper objectMapper,
-      @Value("${healflow.webhook.notify-on-regression:false}") boolean notifyOnRegression) {
-    this(applicationRepository, objectMapper, null, notifyOnRegression, DEFAULT_MAX_ATTEMPTS, DEFAULT_BASE_BACKOFF_MILLIS);
+      @Value("${healflow.webhook.notify-on-regression:false}") boolean notifyOnRegression,
+      @Value("${healflow.platform.base-url:}") String platformBaseUrl) {
+    this(
+        applicationRepository,
+        objectMapper,
+        null,
+        notifyOnRegression,
+        platformBaseUrl,
+        DEFAULT_MAX_ATTEMPTS,
+        DEFAULT_BASE_BACKOFF_MILLIS);
   }
 
   WebhookService(
@@ -52,12 +62,14 @@ public class WebhookService {
       ObjectMapper objectMapper,
       HttpSender httpSender,
       boolean notifyOnRegression,
+      String platformBaseUrl,
       int maxAttempts,
       long baseBackoffMillis) {
     this.applicationRepository = Objects.requireNonNull(applicationRepository, "applicationRepository");
     this.objectMapper = Objects.requireNonNull(objectMapper, "objectMapper");
     this.httpSender = httpSender != null ? httpSender : new DefaultHttpSender();
     this.notifyOnRegression = notifyOnRegression;
+    this.platformBaseUrl = normalize(platformBaseUrl);
     this.maxAttempts = maxAttempts;
     this.baseBackoffMillis = baseBackoffMillis;
   }
@@ -94,10 +106,41 @@ public class WebhookService {
     sendWithRetry(webhookUrl, body);
   }
 
+  public void notifyAnalysisComplete(IncidentEntity incident) {
+    if (incident == null) {
+      throw new IllegalArgumentException("incident must not be null");
+    }
+    if (incident.getStatus() != IncidentStatus.PENDING_REVIEW) {
+      return;
+    }
+    String structuredOutput = normalize(incident.getAnalysisResult());
+    if (structuredOutput == null) {
+      return;
+    }
+    WebhookPayload.AnalysisInfo analysis =
+        new WebhookPayload.AnalysisInfo(
+            normalize(incident.getSessionId()),
+            extractRootCause(structuredOutput),
+            extractSummary(structuredOutput),
+            extractSeverity(structuredOutput),
+            buildDetailUrl(incident.getId()));
+    WebhookPayload payload =
+        new WebhookPayload(
+            incident.getAppId(),
+            incident.getId(),
+            incident.getStatus(),
+            incident.getErrorType(),
+            incident.getErrorMessage(),
+            incident.getCreatedAt(),
+            analysis);
+    notifyIncident(payload);
+  }
+
   JsonNode buildRequestBody(WebhookPayload payload, WebhookType type) {
     String title = "[HEALFLOW] Incident " + safeStatus(payload.status());
     return switch (type) {
       case DINGTALK -> buildDingTalkPayload(title, formatDetails(payload, "- ", "", ""));
+      case WECOM -> buildWeComPayload(title, formatDetails(payload, "- ", "", ""));
       case FEISHU -> buildFeishuPayload(title, formatDetails(payload, "", "**", "**"));
       case SLACK -> buildSlackPayload(title, formatDetails(payload, "", "*", "*"));
       case UNKNOWN -> objectMapper.createObjectNode();
@@ -110,6 +153,14 @@ public class WebhookService {
     ObjectNode markdown = root.putObject("markdown");
     markdown.put("title", title);
     markdown.put("text", "### " + title + "\n" + details);
+    return root;
+  }
+
+  private ObjectNode buildWeComPayload(String title, String details) {
+    ObjectNode root = objectMapper.createObjectNode();
+    root.put("msgtype", "markdown");
+    ObjectNode markdown = root.putObject("markdown");
+    markdown.put("content", "### " + title + "\n" + details);
     return root;
   }
 
@@ -159,7 +210,82 @@ public class WebhookService {
     if (occurredAt != null) {
       addLine(lines, bulletPrefix, labelStart, labelEnd, "Occurred", occurredAt.toString());
     }
+    if (payload.hasAnalysis()) {
+      WebhookPayload.AnalysisInfo analysis = payload.analysis();
+      addLine(lines, bulletPrefix, labelStart, labelEnd, "Session", analysis.sessionId());
+      addLine(lines, bulletPrefix, labelStart, labelEnd, "Severity", analysis.severity());
+      addLine(lines, bulletPrefix, labelStart, labelEnd, "Root Cause", analysis.rootCause());
+      addLine(lines, bulletPrefix, labelStart, labelEnd, "Summary", analysis.summary());
+      addLine(lines, bulletPrefix, labelStart, labelEnd, "Details", analysis.detailUrl());
+    }
     return String.join("\n", lines);
+  }
+
+  private String extractRootCause(String structuredOutput) {
+    JsonNode node = parseStructuredOutput(structuredOutput);
+    if (node == null) {
+      return null;
+    }
+    String rootCause = extractText(node, "root_cause");
+    return rootCause != null ? rootCause : extractText(node, "rootCause");
+  }
+
+  private String extractSeverity(String structuredOutput) {
+    JsonNode node = parseStructuredOutput(structuredOutput);
+    String severity = extractText(node, "severity");
+    return severity != null ? severity.toUpperCase(Locale.ROOT) : null;
+  }
+
+  private String extractSummary(String structuredOutput) {
+    JsonNode node = parseStructuredOutput(structuredOutput);
+    String summary = extractText(node, "analysis");
+    if (summary == null) {
+      return null;
+    }
+    summary = summary.replace('\n', ' ').replace('\r', ' ');
+    return truncate(summary, 300);
+  }
+
+  private String buildDetailUrl(String incidentId) {
+    String baseUrl = normalize(platformBaseUrl);
+    String normalizedIncidentId = normalize(incidentId);
+    if (baseUrl == null || normalizedIncidentId == null) {
+      return null;
+    }
+    if (baseUrl.endsWith("/")) {
+      baseUrl = baseUrl.substring(0, baseUrl.length() - 1);
+    }
+    return baseUrl + "/api/v1/incidents/" + normalizedIncidentId;
+  }
+
+  private JsonNode parseStructuredOutput(String structuredOutput) {
+    String normalized = normalize(structuredOutput);
+    if (normalized == null) {
+      return null;
+    }
+    try {
+      return objectMapper.readTree(normalized);
+    } catch (IOException e) {
+      log.debug("Failed to parse structuredOutput JSON", e);
+      return null;
+    }
+  }
+
+  private static String extractText(JsonNode node, String field) {
+    if (node == null || field == null || field.isBlank()) {
+      return null;
+    }
+    return normalize(node.path(field).asText(null));
+  }
+
+  private static String truncate(String value, int maxLength) {
+    if (value == null || value.length() <= maxLength) {
+      return value;
+    }
+    if (maxLength <= 3) {
+      return value.substring(0, maxLength);
+    }
+    return value.substring(0, maxLength - 3) + "...";
   }
 
   private static void addLine(
@@ -239,6 +365,9 @@ public class WebhookService {
     if (lower.contains("oapi.dingtalk.com")) {
       return WebhookType.DINGTALK;
     }
+    if (lower.contains("qyapi.weixin.qq.com")) {
+      return WebhookType.WECOM;
+    }
     if (lower.contains("open.feishu.cn") || lower.contains("larksuite.com")) {
       return WebhookType.FEISHU;
     }
@@ -250,6 +379,7 @@ public class WebhookService {
 
   enum WebhookType {
     DINGTALK,
+    WECOM,
     FEISHU,
     SLACK,
     UNKNOWN
