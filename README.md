@@ -1,189 +1,208 @@
-# Project HealFlow: AIOps Self-Healing Engine
+# HealFlow: AIOps Self-Healing Engine
 
 ![Language](https://img.shields.io/badge/Language-Java_21%2B-blue)
 ![Framework](https://img.shields.io/badge/Framework-Spring_Boot_3.x-green)
 ![Architecture](https://img.shields.io/badge/Architecture-Host_Container_Hybrid-orange)
-![Sandbox](https://img.shields.io/badge/Sandbox-Docker_%26_Testcontainers-2496ED)
+![Sandbox](https://img.shields.io/badge/Sandbox-Docker-2496ED)
 
 > **"Turn Runtime Exceptions into Merge Requests."**
->
-> **HealFlow** 是一个专为 Spring Boot 生态设计的 AIOps 自愈引擎。它不仅仅是分析日志，更是一个**全自动化的 DevOps 修复闭环**。
->
-> **核心差异化**: 不同于传统的 API 调用，HealFlow 采用 **"Agent Sandbox"** 模式——在隔离的 Docker 容器中运行全功能的 AI 程序员（如 Claude Code），利用 Java 编排层自动处理工具授权与交互，安全地对真实项目源码进行诊断与修复。
+
+## Project Overview | 项目简介
+
+**HealFlow** 是一个面向 Spring Boot 应用的 AIOps 自愈引擎。它的目标不是“更聪明的日志分析”，而是把 Runtime Exception 转换为可执行的诊断/修复流程，并最终产出可 Review 的 Patch / Merge Request。
+
+核心差异点（Key Concept）：HealFlow 采用 **"Agent Sandbox"** 模式——在隔离的 Docker Container 中运行 AI Agent（例如 Claude Code），由 Platform 负责工具授权、交互接管、代码同步与补丁导出。
 
 ---
 
-## 🏗 System Architecture | 系统架构
+## Quick Start | 快速开始
 
-本项目采用 **"Host-Container Hybrid" (宿主机-容器混合)** 架构，在保证极致性能的同时，实现绝对的安全隔离。
+### Prerequisites | 前置要求
 
-### 核心设计决策 (Key Design Decisions)
+1. Java 21（确保 `JAVA_HOME` 指向 JDK 21；Spring Boot 3.x Maven Plugin 需要 Java 17+）
+2. Maven 3.9+
+3. Docker（Platform/Engine 需要，用于 Sandbox 执行）
 
-1.  **Hybrid Workspace (混合工作区)**:
-    * **Host (Platform)**: 使用 `JGit` 在宿主机维护代码仓库。利用 `git fetch` 增量更新，避免每次诊断都重新 Clone，**解决网络效率问题**。
-    * **Container (Sandbox)**: 启动 Docker 时通过 **Volume Mount (挂载)** 将宿主机的源码映射进容器。Agent 在容器内修改文件，宿主机实时同步。
+建议先确认 Maven 实际使用的 Java 版本（以 `mvn -v` 为准），避免 `JAVA_HOME` 指向旧版 JDK。
 
-2.  **Interactive Automation (交互式自动化)**:
-    * AI Agent (如 Claude Code) 通常是交互式的（会询问用户确认权限）。
-    * HealFlow Platform 使用 Java `ProcessBuilder` **劫持容器进程的 STDIN 和 STDOUT**，通过预设策略自动批准（Auto-approve）常规操作或拦截高危操作。
+### 1) Start Platform | 启动 healflow-platform
 
-3.  **Safety First (安全优先)**:
-    * 所有 AI 操作（编译、运行测试、修改文件）均限制在 Docker 容器内。
-    * 容器用完即焚（Ephemeral Containers），防止环境污染。
-
----
-
-## 📂 Project Structure | 项目结构
-
-```text
-healflow-root
-├── healflow-starter      # [Client SDK] 嵌入业务项目的探针，负责抓取异常与 CommitID
-├── healflow-platform     # [Server Core] 核心服务 (Spring Boot Web)
-├── healflow-engine       # [The Brain] 核心引擎模块
-│   ├── git               # JGit 实现的源码管理器 (Host side)
-│   └── sandbox           # Testcontainers 实现的沙箱运行器与交互劫持逻辑 (Docker side)
-├── healflow-common       # [Shared] 公共 DTO (Incident, PatchProposal)
-└── README.md
-```
-
----
-
-## 🚀 Getting Started | 快速开始
-
-请按照以下步骤启动项目并进行集成测试。
-
-### 1. Prerequisites (环境要求)
-
-- **JDK 21+**: 核心开发语言。
-- **Maven 3.9+**: 项目构建工具（JDK 21 需要 Maven 3.9+ 以获得最佳支持）。
-- **Docker**: [必须安装] 部署 HealFlow Platform 的服务器必须安装 Docker，用于启动隔离沙箱。
-- **Agent Tools**: 基础镜像需预装 Agent (如 claude-code)，且需配置访问凭证 (如 ANTHROPIC_API_KEY)。
-
-### 2. Platform Setup (服务端部署)
+1. 从源码启动（开发态）：
 
 ```bash
-# 1. 克隆本仓库
-git clone https://github.com/your-org/healflow.git
-
-# 2. 修改配置 (healflow-platform/src/main/resources/application.yml)
-# 重点配置 Git 访问令牌和 Docker 镜像策略
-# healflow.sandbox.image: "ubuntu:latest" (或预装了 claude-code 的自定义镜像)
-
-# 3. 启动平台服务
-cd healflow-platform
-mvn spring-boot:run
+# 注意：如果你的 JAVA_HOME 仍指向 JDK 8，会在执行 spring-boot 插件时报 UnsupportedClassVersionError
+mvn -pl healflow-platform -am -DskipTests spring-boot:run
 ```
 
-### 3. Client Integration (业务接入)
+2. 默认监听端口：`8080`
+3. Platform 的默认配置文件：`healflow-platform/src/main/resources/application.yml`
 
-在您的 Spring Boot 业务应用中执行以下两步：
+### 2) Integrate App | 接入你的应用（只需要引入 Starter）
 
-#### Step 1: 引入 SDK 依赖 (pom.xml)
+1. 在业务项目中引入 Maven 依赖（直接 pom 引入即可使用）：
 
 ```xml
 <dependency>
-    <groupId>com.healflow</groupId>
-    <artifactId>healflow-spring-boot-starter</artifactId>
-    <version>1.0.0-SNAPSHOT</version>
+  <groupId>com.healflow</groupId>
+  <artifactId>healflow-spring-boot-starter</artifactId>
+  <version>0.0.1</version>
 </dependency>
 ```
 
-#### Step 2: 配置探针 (application.yml)
+> 如果你还没有把 `0.0.1` 发布到 Maven 仓库，请先看 `Local Installation | 本地安装`（`mvn clean install` 安装到本地仓库）。
+
+2. 在业务项目配置 `application.yml`：
 
 ```yaml
 healflow:
   enabled: true
-  # HealFlow Platform 的部署地址
+  # HealFlow Platform Base URL（不要包含路径）
   server-url: "http://localhost:8080"
-  # 当前应用标识
+  # 当前应用标识（建议唯一，用于 Platform 侧区分来源）
   app-id: "order-service"
-  # 源码仓库信息 (用于 Agent 拉取代码)
-  project:
-    git-url: "git@gitlab.com:finance/order-service.git"
-    branch: "main"
+  # 业务代码仓库信息（Platform 用于拉取源码进行分析/修复）
+  git-url: "https://github.com/your-org/your-repo.git"
+  git-branch: "main"
+```
+
+3. 启动业务应用后，触发一个未处理异常（unhandled exception / controller exception），Starter 会上报 Incident 到 Platform：
+   - `POST {healflow.server-url}/api/v1/incidents/report`
+
+### 3) Verify With Demo | 用 Demo 快速验证（可选）
+
+1. 先启动 Platform（保持运行）
+2. 再启动 Demo：
+
+```bash
+mvn -pl healflow-demo -am -Pboot -DskipTests spring-boot:run
+```
+
+3. 触发异常：
+
+```bash
+curl http://localhost:8081/trigger-error
 ```
 
 ---
 
-## 🛠 Deep Dive: How It Works? | 核心原理
+## Usage | 使用指南
 
-### Stage 1: The Trap (捕获)
+### Maven Dependency | 依赖引入
 
-当业务系统抛出未捕获异常：
+- 推荐只引入 `healflow-spring-boot-starter`；它会通过 `HealFlowAutoConfiguration` 自动注册上报组件（无需额外 `@Enable...`）。
 
-- **HealflowProbe** 拦截 Global Exception。
-- 读取 `git.properties` (需配置 Maven Git Commit ID Plugin) 获取发生报错时的精确 Commit ID。
-- 打包 Context (Stacktrace + CommitID + Env Vars) 发送给 Platform。
+### Configuration | 配置说明
 
-### Stage 2: The Setup (准备)
+| 字段名 (Property) | 类型 (Type) | 默认值 (Default) | 说明 (Description) |
+|---|---|---|---|
+| `healflow.enabled` | boolean | `true` | 是否启用 Starter；`false` 时不注册相关 Bean，也不会上报 |
+| `healflow.server-url` | String | `http://localhost:8080` | Platform Base URL（不要包含路径） |
+| `healflow.app-id` | String | (无) | 应用标识（建议唯一） |
+| `healflow.git-url` | String | `""` | 业务仓库 URL（Platform 用于拉取源码） |
+| `healflow.git-branch` | String | `main` | 默认分支（未配置时回退到 `main`） |
 
-Platform 收到请求：
+- 必填（Required）：`healflow.app-id`
+- 建议（Recommended）：`healflow.git-url`、`healflow.git-branch`（用于 Platform 拉取源码做分析/修复）
 
-- **Git Manager**: 检查本地缓存。如果仓库存在，执行 `git fetch && git reset --hard {commitId}`；如果不存在，执行 `git clone`。
-- **Sandbox Init**: 启动 Docker 容器，将本地源码目录挂载到容器的 `/src`。
+### Configuration Example | 配置示例
 
-### Stage 3: The Interrogation (交互式诊断)
+```yaml
+spring:
+  application:
+    name: order-service
 
-这是最精彩的部分。Platform 启动 Agent (Claude CLI) 并接管控制台 IO：
-
-```java
-// 核心逻辑伪代码演示 (Located in healflow-engine)
-ProcessBuilder pb = new ProcessBuilder("docker", "exec", "claude", "analyze", "/src");
-Process process = pb.start();
-
-// 监听 Agent 的提问 (STDOUT)
-while ((line = reader.readLine()) != null) {
-    if (line.contains("Allow read access to UserServiceImpl.java? [y/N]")) {
-        // Platform 自动输入 'y' (STDIN)
-        writer.write("y");
-        writer.flush();
-        log.info("Auto-approved read access for Agent.");
-    }
-    else if (line.contains("Delete file application.yml?")) {
-        // 拦截高危操作
-        writer.write("n");
-        writer.flush();
-        log.warn("Blocked attempt to delete config file.");
-    }
-}
+healflow:
+  enabled: true
+  server-url: "http://healflow-platform.company.internal:8080"
+  app-id: "${spring.application.name}"
+  git-url: "git@github.com:your-org/order-service.git"
+  git-branch: "main"
 ```
 
-### Stage 4: The Patch (补丁)
+---
 
-- Agent 在容器内完成代码修改。
-- Platform 在宿主机执行 `git diff` 生成 `.patch` 文件。
-- 通过 IM/Web 通知开发者进行 Code Review。
-- 开发者批准后，Platform 执行 `git push` 并自动创建 Merge Request。
+## Local Installation | 本地安装
+
+当你还没有把 HealFlow 发布到 Maven 仓库时，可以先安装到本地仓库（local repository），然后在其他项目通过 `pom.xml` 直接引入。
+
+### 1) Install To Local Repo | 安装到本地仓库
+
+在本仓库根目录执行：
+
+```bash
+mvn -DskipTests clean install
+```
+
+### 2) Use In Another Project | 在其他项目中引用
+
+在你的业务项目 `pom.xml` 中添加依赖（版本与本仓库一致）：
+
+```xml
+<dependency>
+  <groupId>com.healflow</groupId>
+  <artifactId>healflow-spring-boot-starter</artifactId>
+  <version>0.0.1</version>
+</dependency>
+```
 
 ---
 
-## ⚠️ Security Guidelines | 安全准则
+## Architecture | 架构说明
 
-- **Network Isolation**: 建议生产环境的 Docker 容器配置为 `network: limited`，仅允许访问必要的 Maven/Pip 源，防止代码或密钥外泄。
-- **Token Management**: 所有的 API Keys 应以环境变量形式在启动容器时注入，禁止硬编码。
-- **Human in the Loop**: 只有经过人工点击 "Approve" 的代码才会被 Push 到远程仓库。
+HealFlow 采用 "Host-Container Hybrid"（宿主机 + 容器混合）架构：在保证性能的同时实现安全隔离。
+
+### Key Design Decisions | 核心设计
+
+1. Hybrid Workspace（混合工作区）
+   - Host（Platform）：使用 JGit/本地 Git 缓存源码，增量更新，避免每次重复 clone
+   - Container（Sandbox）：通过 Volume Mount 把源码挂载进容器，Agent 在容器内改动，宿主机实时可见
+
+2. Interactive Automation（交互式自动化）
+   - AI Agent 通常是交互式 CLI（会询问授权/确认）
+   - Platform 使用 Java ProcessBuilder 接管容器进程的 STDIN/STDOUT，通过规则进行自动应答（Auto-approve）或拦截高风险操作
+
+3. Safety First（安全优先）
+   - 编译/测试/文件修改等操作限制在容器内执行
+   - 容器用完即焚（Ephemeral），避免环境污染
+
+### Modules | 模块结构
+
+```text
+healflow-parent
+├── healflow-common               # 公共 DTO / Enum
+├── healflow-engine               # 核心引擎（Git + Sandbox + Shell Runner）
+├── healflow-spring-boot-starter  # Client SDK（异常上报 & 自动配置）
+├── healflow-platform             # Server（REST API + Orchestration）
+└── healflow-demo                 # 示例应用
+```
+
+### Flow | 处理流程（简化）
+
+1. Client（业务应用）捕获异常并构建 Incident
+2. Starter 调用 Platform API：`/api/v1/incidents/report`
+3. Platform 侧拉取/同步源码，启动 Sandbox
+4. Agent 在 Sandbox 中分析并生成 Patch（Platform 导出 diff / patch）
 
 ---
 
-## 🗓 Roadmap | 开发计划
+## Development | 开发指南
 
-- [ ] **Phase 1: MVP (The Analyst)**
-  - [ ] 完成 Spring Boot Starter 异常捕获与上报。
-  - [ ] 完成 Platform 基础 JGit 封装 (Clone/Pull)。
-  - [ ] 实现 Java ProcessBuilder 调用本地 Shell (Mock Agent) 并打通 IO 劫持。
+### Build | 构建
 
-- [ ] **Phase 2: Alpha (The Fixer)**
-  - [ ] 引入 Testcontainers 实现 Docker 沙箱生命周期管理。
-  - [ ] 完善 "交互式 CLI" 的自动应答器 (Auto-Responder) 策略。
-  - [ ] 集成 Claude Code / OpenAI CLI 真实环境。
+```bash
+# 编译（不跑测试）
+mvn clean compile -DskipTests
 
-- [ ] **Phase 3: Release (The Closer)**
-  - [ ] Web 控制台：在线查看 Code Diff。
-  - [ ] GitLab/GitHub API 深度集成 (Auto PR)。
+# 单模块构建
+mvn -pl healflow-platform -am clean package
+```
 
----
+### Test | 测试
 
-## 👥 Maintainers
+```bash
+# 运行测试
+mvn clean test
 
-- **Tech Lead**: [Your Name]
-- **Team**: Backend Architecture Group
+# 完整校验（含覆盖率检查）
+mvn clean verify
+```
