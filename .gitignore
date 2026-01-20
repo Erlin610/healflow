@@ -54,3 +54,4 @@ data/
 *.mv.db
 *.trace.db
 
+.factorypath

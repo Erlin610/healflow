@@ -41,7 +41,10 @@ class WebhookServiceTest {
 
     assertEquals("markdown", body.get("msgtype").asText());
     assertEquals("[HEALFLOW] 异常事件 待处理", body.get("markdown").get("title").asText());
-    assertTrue(body.get("markdown").get("text").asText().contains("优先级: 普通"));
+    String text = body.get("markdown").get("text").asText();
+    assertTrue(text.contains("优先级: 普通"));
+    assertTrue(text.contains("请求接口: http://example.test/api/orders"));
+    assertTrue(text.contains("链路ID: trace-xyz"));
   }
 
   @Test
@@ -169,6 +172,10 @@ class WebhookServiceTest {
             "NullPointerException",
             "boom",
             "stack",
+            null,
+            null,
+            null,
+            null,
             Map.of(),
             Instant.parse("2026-01-05T00:00:00Z"));
 
@@ -204,6 +211,10 @@ class WebhookServiceTest {
             "NullPointerException",
             "boom",
             "stack",
+            null,
+            null,
+            null,
+            null,
             Map.of(),
             Instant.parse("2026-01-05T00:00:00Z"));
 
@@ -243,6 +254,10 @@ class WebhookServiceTest {
         status,
         "NullPointerException",
         "boom",
+        "http://example.test/api/orders",
+        "GET",
+        "id=1",
+        "trace-xyz",
         Instant.parse("2026-01-05T00:00:00Z"),
         null);
   }

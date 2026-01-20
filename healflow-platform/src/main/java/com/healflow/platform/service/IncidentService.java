@@ -107,6 +107,10 @@ public class IncidentService {
     incident.setErrorType(report.errorType());
     incident.setErrorMessage(report.errorMessage());
     incident.setStackTrace(report.stackTrace());
+    incident.setRequestUrl(report.requestUrl());
+    incident.setRequestMethod(report.requestMethod());
+    incident.setRequestParams(report.requestParams());
+    incident.setTraceId(report.traceId());
 
     ErrorFingerprintEntity fingerprint = fingerprintService.recordOccurrence(
         report.errorType(), report.stackTrace());
@@ -415,6 +419,10 @@ public class IncidentService {
       incident.setAppId(report.appId());
       incident.setRepoUrl(report.repoUrl());
       incident.setBranch(report.branch());
+      incident.setRequestUrl(report.requestUrl());
+      incident.setRequestMethod(report.requestMethod());
+      incident.setRequestParams(report.requestParams());
+      incident.setTraceId(report.traceId());
       if (incident.getStatus() == null) {
         incident.setStatus(IncidentStatus.OPEN);
       } else if (incident.getStatus() == IncidentStatus.FIXED) {
@@ -426,6 +434,10 @@ public class IncidentService {
     IncidentEntity created = new IncidentEntity(incidentId, report.appId(), IncidentStatus.OPEN);
     created.setRepoUrl(report.repoUrl());
     created.setBranch(report.branch());
+    created.setRequestUrl(report.requestUrl());
+    created.setRequestMethod(report.requestMethod());
+    created.setRequestParams(report.requestParams());
+    created.setTraceId(report.traceId());
     return created;
   }
 
@@ -447,6 +459,10 @@ public class IncidentService {
               incident.getStatus(),
               report.errorType(),
               report.errorMessage(),
+              report.requestUrl(),
+              report.requestMethod(),
+              report.requestParams(),
+              report.traceId(),
               report.occurredAt(),
               null);
       webhookService.notifyIncident(payload);
@@ -563,6 +579,10 @@ public class IncidentService {
     map.put("appId", incident.getAppId());
     map.put("repoUrl", incident.getRepoUrl());
     map.put("branch", incident.getBranch());
+    map.put("requestUrl", incident.getRequestUrl());
+    map.put("requestMethod", incident.getRequestMethod());
+    map.put("requestParams", incident.getRequestParams());
+    map.put("traceId", incident.getTraceId());
     map.put("status", incident.getStatus().name());
     map.put("sessionId", incident.getSessionId());
     map.put("errorType", incident.getErrorType());

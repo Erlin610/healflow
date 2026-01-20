@@ -19,7 +19,19 @@ class IncidentReportTest {
   @Test
   void constructor_acceptsNullRepoUrl() {
     IncidentReport report =
-        new IncidentReport("order-service", null, "main", "Boom", "message", "trace", Map.of(), Instant.EPOCH);
+        new IncidentReport(
+            "order-service",
+            null,
+            "main",
+            "Boom",
+            "message",
+            "trace",
+            null,
+            null,
+            null,
+            null,
+            Map.of(),
+            Instant.EPOCH);
 
     assertNull(report.repoUrl());
     assertEquals("order-service", report.appId());
@@ -36,6 +48,10 @@ class IncidentReportTest {
             "NullPointerException",
             "boom",
             "trace",
+            "http://example.test/api/orders",
+            "GET",
+            "id=1",
+            "trace-1",
             Map.of("profile", "prod"),
             Instant.EPOCH);
     IncidentReport second =
@@ -46,6 +62,10 @@ class IncidentReportTest {
             "NullPointerException",
             "boom",
             "trace",
+            "http://example.test/api/orders",
+            "GET",
+            "id=1",
+            "trace-1",
             Map.of("profile", "prod"),
             Instant.EPOCH);
     IncidentReport third =
@@ -56,6 +76,10 @@ class IncidentReportTest {
             "NullPointerException",
             "boom",
             "trace",
+            "http://example.test/api/orders",
+            "GET",
+            "id=1",
+            "trace-1",
             Map.of("profile", "prod"),
             Instant.EPOCH);
 
@@ -79,6 +103,10 @@ class IncidentReportTest {
             "NullPointerException",
             "boom",
             "trace",
+            "http://example.test/api/orders",
+            "POST",
+            "id=1",
+            "trace-xyz",
             Map.of("profile", "prod"),
             null);
 
@@ -87,6 +115,10 @@ class IncidentReportTest {
     assertEquals("order-service", node.get("appId").asText());
     assertEquals("not a url", node.get("repoUrl").asText());
     assertEquals("main", node.get("branch").asText());
+    assertEquals("http://example.test/api/orders", node.get("requestUrl").asText());
+    assertEquals("POST", node.get("requestMethod").asText());
+    assertEquals("id=1", node.get("requestParams").asText());
+    assertEquals("trace-xyz", node.get("traceId").asText());
 
     IncidentReport parsed = mapper.readValue(json, IncidentReport.class);
     assertEquals(report, parsed);
@@ -111,5 +143,9 @@ class IncidentReportTest {
     assertEquals("order-service", parsed.appId());
     assertNull(parsed.repoUrl());
     assertEquals("main", parsed.branch());
+    assertNull(parsed.requestUrl());
+    assertNull(parsed.requestMethod());
+    assertNull(parsed.requestParams());
+    assertNull(parsed.traceId());
   }
 }

@@ -131,6 +131,10 @@ public class WebhookService {
             incident.getStatus(),
             incident.getErrorType(),
             incident.getErrorMessage(),
+            incident.getRequestUrl(),
+            incident.getRequestMethod(),
+            incident.getRequestParams(),
+            incident.getTraceId(),
             incident.getCreatedAt(),
             analysis);
     notifyIncident(payload);
@@ -206,6 +210,10 @@ public class WebhookService {
     addLine(lines, bulletPrefix, labelStart, labelEnd, "事件ID", payload.incidentId());
     addLine(lines, bulletPrefix, labelStart, labelEnd, "异常类型", payload.errorType());
     addLine(lines, bulletPrefix, labelStart, labelEnd, "异常信息", payload.errorMessage());
+    addLine(lines, bulletPrefix, labelStart, labelEnd, "请求接口", payload.requestUrl());
+    addLine(lines, bulletPrefix, labelStart, labelEnd, "请求方法", payload.requestMethod());
+    addLine(lines, bulletPrefix, labelStart, labelEnd, "请求参数", payload.requestParams());
+    addLine(lines, bulletPrefix, labelStart, labelEnd, "链路ID", payload.traceId());
     Instant occurredAt = payload.occurredAt();
     if (occurredAt != null) {
       addLine(lines, bulletPrefix, labelStart, labelEnd, "发生时间", occurredAt.toString());

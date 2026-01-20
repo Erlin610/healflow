@@ -41,6 +41,10 @@ class IncidentControllerTest {
             "NullPointerException",
             "boom",
             "stack",
+            null,
+            null,
+            null,
+            null,
             Map.of("env", "test"),
             Instant.parse("2026-01-05T00:00:00Z"));
 
@@ -81,6 +85,10 @@ class IncidentControllerTest {
             "NullPointerException",
             "boom",
             "stack",
+            null,
+            null,
+            null,
+            null,
             Map.of("env", "test"),
             Instant.parse("2026-01-05T00:00:00Z"));
 
@@ -142,6 +150,10 @@ class IncidentControllerTest {
             "NullPointerException",
             "boom",
             "stack",
+            null,
+            null,
+            null,
+            null,
             Map.of("env", "test"),
             Instant.parse("2026-01-05T00:00:00Z"));
 

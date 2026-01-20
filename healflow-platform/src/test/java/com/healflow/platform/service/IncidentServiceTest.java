@@ -79,6 +79,10 @@ class IncidentServiceTest {
             "NullPointerException",
             "boom",
             "stack",
+            null,
+            null,
+            null,
+            null,
             Map.of(),
             Instant.parse("2026-01-05T00:00:00Z"));
 
@@ -128,6 +132,10 @@ class IncidentServiceTest {
               "NullPointerException",
               "Object reference not set",
               "at com.example.Main.main(Main.java:10)",
+              null,
+              null,
+              null,
+              null,
               Map.of(),
               Instant.parse("2026-01-05T00:00:00Z"));
 
@@ -203,6 +211,10 @@ class IncidentServiceTest {
             "NullPointerException",
             "boom",
             "stack",
+            null,
+            null,
+            null,
+            null,
             Map.of(),
             Instant.parse("2026-01-05T00:00:00Z"));
 
@@ -233,6 +245,10 @@ class IncidentServiceTest {
             "NullPointerException",
             "boom",
             "stack",
+            null,
+            null,
+            null,
+            null,
             Map.of(),
             Instant.parse("2026-01-05T00:00:00Z"));
 
@@ -258,6 +274,10 @@ class IncidentServiceTest {
             "NullPointerException",
             "boom",
             "stack",
+            null,
+            null,
+            null,
+            null,
             Map.of(),
             Instant.parse("2026-01-05T00:00:00Z"));
 
@@ -319,6 +339,10 @@ class IncidentServiceTest {
             "NullPointerException",
             "boom",
             "stack",
+            null,
+            null,
+            null,
+            null,
             Map.of(),
             Instant.parse("2026-01-05T00:00:00Z"));
 
@@ -374,6 +398,10 @@ class IncidentServiceTest {
             "NullPointerException",
             "boom",
             "stack",
+            null,
+            null,
+            null,
+            null,
             Map.of(),
             Instant.parse("2026-01-05T00:00:00Z"));
 
@@ -411,6 +439,10 @@ class IncidentServiceTest {
             "NullPointerException",
             "boom",
             "stack",
+            null,
+            null,
+            null,
+            null,
             Map.of(),
             Instant.parse("2026-01-05T00:00:00Z"));
 
@@ -437,6 +469,10 @@ class IncidentServiceTest {
             "NullPointerException",
             "boom",
             "stack",
+            null,
+            null,
+            null,
+            null,
             Map.of(),
             Instant.parse("2026-01-05T00:00:00Z"));
 
@@ -461,6 +497,10 @@ class IncidentServiceTest {
             "NullPointerException",
             "boom",
             "stack",
+            null,
+            null,
+            null,
+            null,
             Map.of(),
             Instant.parse("2026-01-05T00:00:00Z"));
 
@@ -500,6 +540,10 @@ class IncidentServiceTest {
             "NullPointerException",
             "boom",
             "stack",
+            null,
+            null,
+            null,
+            null,
             Map.of(),
             Instant.parse("2026-01-05T00:00:00Z"));
 
@@ -778,6 +822,10 @@ class IncidentServiceTest {
               "NullPointerException",
               "boom",
               stackTrace,
+              null,
+              null,
+              null,
+              null,
               Map.of(),
               Instant.parse("2026-01-05T00:00:00Z"));
 

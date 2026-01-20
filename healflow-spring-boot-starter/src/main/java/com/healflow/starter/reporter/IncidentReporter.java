@@ -4,7 +4,11 @@ import com.healflow.common.dto.IncidentReport;
 import com.healflow.starter.config.HealFlowProperties;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.slf4j.MDC;
 import org.springframework.web.client.RestClient;
+import org.springframework.web.context.request.RequestAttributes;
+import org.springframework.web.context.request.RequestContextHolder;
+import org.springframework.web.context.request.ServletRequestAttributes;
 
 public class IncidentReporter {
   private static final Logger log = LoggerFactory.getLogger(IncidentReporter.class);
@@ -25,7 +29,8 @@ public class IncidentReporter {
     if (!properties.isEnabled()) return;
 
     try {
-      // 构造 DTO (这里暂时 mock commitId，下一步我们再加 Git 读取)
+      HttpContext httpContext = captureHttpContext();
+      // 构造 DTO（Git 信息来自配置；HTTP 上下文尽力提取，非 HTTP 场景为 null）
       IncidentReport report =
               new IncidentReport(
               properties.getAppId(),
@@ -34,6 +39,10 @@ public class IncidentReporter {
               ex.getClass().getName(),
               ex.getMessage(),
               getStackTraceAsString(ex),
+              httpContext.requestUrl(),
+              httpContext.requestMethod(),
+              httpContext.requestParams(),
+              httpContext.traceId(),
               java.util.Collections.emptyMap(),
               java.time.Instant.now());
 
@@ -59,5 +68,57 @@ public class IncidentReporter {
     java.io.StringWriter sw = new java.io.StringWriter();
     throwable.printStackTrace(new java.io.PrintWriter(sw));
     return sw.toString();
+  }
+
+  private static HttpContext captureHttpContext() {
+    RequestAttributes attributes = RequestContextHolder.getRequestAttributes();
+    if (!(attributes instanceof ServletRequestAttributes servletAttributes)) {
+      return HttpContext.empty();
+    }
+
+    String requestUrl = null;
+    String requestMethod = null;
+    String requestParams = null;
+    String traceId = null;
+
+    try {
+      var request = servletAttributes.getRequest();
+      if (request != null) {
+        requestUrl = normalize(request.getRequestURL() != null ? request.getRequestURL().toString() : null);
+        requestMethod = normalize(request.getMethod());
+        requestParams = normalize(request.getQueryString());
+
+        traceId = normalize(request.getHeader("X-Trace-Id"));
+        if (traceId == null) {
+          traceId = normalize(request.getHeader("traceId"));
+        }
+        if (traceId == null) {
+          traceId = normalize(request.getHeader("X-B3-TraceId"));
+        }
+      }
+    } catch (RuntimeException ignored) {
+      // Best-effort only: incident reporting must not fail due to request extraction.
+    }
+
+    String mdcTraceId = normalize(MDC.get("traceId"));
+    if (mdcTraceId != null) {
+      traceId = mdcTraceId;
+    }
+
+    return new HttpContext(requestUrl, requestMethod, requestParams, traceId);
+  }
+
+  private static String normalize(String value) {
+    if (value == null) {
+      return null;
+    }
+    String trimmed = value.trim();
+    return trimmed.isEmpty() ? null : trimmed;
+  }
+
+  private record HttpContext(String requestUrl, String requestMethod, String requestParams, String traceId) {
+    private static HttpContext empty() {
+      return new HttpContext(null, null, null, null);
+    }
   }
 }

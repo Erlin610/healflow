@@ -30,6 +30,18 @@ public class IncidentEntity {
   @Column(length = 128)
   private String branch;
 
+  @Column(length = 2048)
+  private String requestUrl;
+
+  @Column(length = 16)
+  private String requestMethod;
+
+  @Column(columnDefinition = "TEXT")
+  private String requestParams;
+
+  @Column(length = 128)
+  private String traceId;
+
   @Enumerated(EnumType.STRING)
   @Column(nullable = false, length = 32)
   private IncidentStatus status;
@@ -139,6 +151,38 @@ public class IncidentEntity {
 
   public void setBranch(String branch) {
     this.branch = branch;
+  }
+
+  public String getRequestUrl() {
+    return requestUrl;
+  }
+
+  public void setRequestUrl(String requestUrl) {
+    this.requestUrl = requestUrl;
+  }
+
+  public String getRequestMethod() {
+    return requestMethod;
+  }
+
+  public void setRequestMethod(String requestMethod) {
+    this.requestMethod = requestMethod;
+  }
+
+  public String getRequestParams() {
+    return requestParams;
+  }
+
+  public void setRequestParams(String requestParams) {
+    this.requestParams = requestParams;
+  }
+
+  public String getTraceId() {
+    return traceId;
+  }
+
+  public void setTraceId(String traceId) {
+    this.traceId = traceId;
   }
 
   public IncidentStatus getStatus() {

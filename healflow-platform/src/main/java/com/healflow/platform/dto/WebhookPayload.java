@@ -9,6 +9,10 @@ public record WebhookPayload(
     IncidentStatus status,
     String errorType,
     String errorMessage,
+    String requestUrl,
+    String requestMethod,
+    String requestParams,
+    String traceId,
     Instant occurredAt,
     AnalysisInfo analysis) {
 

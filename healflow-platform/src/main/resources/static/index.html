@@ -126,6 +126,15 @@
                             <div><div class="text-xs text-gray-500 uppercase mb-1">分支</div><div id="wb-branch">-</div></div>
                             <div><div class="text-xs text-gray-500 uppercase mb-1">提交</div><div class="font-mono text-xs" id="wb-commit">-</div></div>
                             <div><div class="text-xs text-gray-500 uppercase mb-1">时间</div><div id="wb-time">-</div></div>
+                            <div class="pt-3 border-t border-gray-200">
+                                <div class="text-xs text-gray-500 uppercase mb-2">请求信息</div>
+                                <div class="space-y-3">
+                                    <div><div class="text-xs text-gray-500 uppercase mb-1">请求接口</div><div class="font-mono text-xs break-all" id="wb-request-url">-</div></div>
+                                    <div><div class="text-xs text-gray-500 uppercase mb-1">请求方法</div><div class="font-mono text-xs" id="wb-request-method">-</div></div>
+                                    <div><div class="text-xs text-gray-500 uppercase mb-1">请求参数</div><div class="font-mono text-xs break-all" id="wb-request-params">-</div></div>
+                                    <div><div class="text-xs text-gray-500 uppercase mb-1">链路ID</div><div class="font-mono text-xs break-all" id="wb-trace-id">-</div></div>
+                                </div>
+                            </div>
                         </div>
                     </div>
                     <div class="flex-1 flex flex-col min-w-0 bg-white">
@@ -525,6 +534,16 @@
         return map[status] || status || '-';
     }
 
+    function escapeHtml(value) {
+        if (value === null || value === undefined) return '';
+        return String(value)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+    }
+
     function renderIncidentTable(incidents) {
         var body = document.getElementById('incident-list-body');
         if (!incidents || incidents.length === 0) {
@@ -537,12 +556,20 @@
             var dateStr = new Date(inc.createdAt).toLocaleString();
             var fullFingerprint = inc.fingerprintId || '';
             var fingerprintDisplay = truncateFingerprint(fullFingerprint);
-            var fingerprintTitle = fullFingerprint || 'N/A';
+            var fingerprintTitle = escapeHtml(fullFingerprint || 'N/A');
+
+            var errorType = escapeHtml(inc.errorType || 'Unknown');
+            var errorMessage = escapeHtml(inc.errorMessage || '');
+            var requestSummary = '';
+            if (inc.requestUrl) {
+                var summary = (inc.requestMethod ? (inc.requestMethod + ' ') : '') + inc.requestUrl;
+                requestSummary = '<div class="text-xs text-gray-500 truncate" title="' + escapeHtml(summary) + '">接口: ' + escapeHtml(summary) + '</div>';
+            }
             return '<div class="grid grid-cols-12 gap-4 px-6 py-4 hover:bg-gray-50 cursor-pointer items-center incident-row" data-id="' + inc.id + '">' +
                 '<div class="col-span-1"><span class="px-2 py-1 rounded-full text-xs font-semibold ' + color + '">' + formatStatus(inc.status) + '</span></div>' +
                 '<div class="col-span-2 text-sm font-mono text-gray-600" title="' + fingerprintTitle + '">' + fingerprintDisplay + '</div>' +
-                '<div class="col-span-4"><div class="text-sm font-medium text-danger truncate">' + (inc.errorType || 'Unknown') + '</div><div class="text-xs text-gray-500 truncate">' + (inc.errorMessage || '') + '</div></div>' +
-                '<div class="col-span-2 text-sm text-gray-600">' + inc.appId + '</div>' +
+                '<div class="col-span-4"><div class="text-sm font-medium text-danger truncate">' + errorType + '</div><div class="text-xs text-gray-500 truncate">' + errorMessage + '</div>' + requestSummary + '</div>' +
+                '<div class="col-span-2 text-sm text-gray-600">' + escapeHtml(inc.appId || '-') + '</div>' +
                 '<div class="col-span-2 text-xs text-gray-500">' + dateStr + '</div>' +
                 '<div class="col-span-1 text-right text-brand-600 text-sm font-medium">查看</div></div>';
         }).join('');
@@ -572,18 +599,22 @@
         document.getElementById('wb-branch').textContent = inc.branch || '-';
         document.getElementById('wb-commit').textContent = (inc.commitId || '').substring(0, 7) || '-';
         document.getElementById('wb-time').textContent = inc.createdAt ? new Date(inc.createdAt).toLocaleString() : '-';
+        document.getElementById('wb-request-url').textContent = inc.requestUrl || '-';
+        document.getElementById('wb-request-method').textContent = inc.requestMethod || '-';
+        document.getElementById('wb-request-params').textContent = inc.requestParams || '-';
+        document.getElementById('wb-trace-id').textContent = inc.traceId || '-';
         document.getElementById('content-stack').textContent = inc.stackTrace || '暂无堆栈信息。';
         
         if (inc.analysisResult) {
             try {
                 var analysis = JSON.parse(inc.analysisResult);
-                var html = '<h3 class="font-bold mb-2">根本原因</h3><p class="mb-4">' + (analysis.root_cause || '-') + '</p>';
-                html += '<h3 class="font-bold mb-2">分析详情</h3><p class="mb-4">' + (analysis.analysis || '-') + '</p>';
+                var html = '<h3 class="font-bold mb-2">根本原因</h3><p class="mb-4">' + escapeHtml(analysis.root_cause || '-') + '</p>';
+                html += '<h3 class="font-bold mb-2">分析详情</h3><p class="mb-4">' + escapeHtml(analysis.analysis || '-') + '</p>';
                 if (analysis.solutions && analysis.solutions.length > 0) {
                     html += '<h3 class="font-bold mb-2">修复方案</h3><div class="space-y-2">';
                     analysis.solutions.forEach(function(sol, idx) {
                         var badge = sol.recommended ? '<span class="ml-2 px-2 py-0.5 bg-green-100 text-green-800 text-xs rounded">推荐</span>' : '';
-                        html += '<div class="border border-gray-200 rounded p-3"><div class="font-semibold">方案 ' + (idx + 1) + ': ' + sol.title + badge + '</div><div class="text-sm text-gray-600 mt-1">' + sol.description + '</div></div>';
+                        html += '<div class="border border-gray-200 rounded p-3"><div class="font-semibold">方案 ' + (idx + 1) + ': ' + escapeHtml(sol.title || '-') + badge + '</div><div class="text-sm text-gray-600 mt-1">' + escapeHtml(sol.description || '-') + '</div></div>';
                     });
                     html += '</div>';
                 }
