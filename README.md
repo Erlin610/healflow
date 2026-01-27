@@ -39,19 +39,28 @@ mvn -pl healflow-platform -am -DskipTests spring-boot:run
 
 ### 2) Integrate App | 接入你的应用（只需要引入 Starter）
 
-1. 在业务项目中引入 Maven 依赖（直接 pom 引入即可使用）：
+1. 在业务项目的 `pom.xml` 中添加 JitPack 仓库：
+
+```xml
+<repositories>
+    <repository>
+        <id>jitpack.io</id>
+        <url>https://jitpack.io</url>
+    </repository>
+</repositories>
+```
+
+2. 添加 HealFlow 依赖（直接从 GitHub 拉取，无需本地安装）：
 
 ```xml
 <dependency>
-  <groupId>com.healflow</groupId>
-  <artifactId>healflow-spring-boot-starter</artifactId>
-  <version>0.0.1</version>
+    <groupId>com.github.Erlin610</groupId>
+    <artifactId>healflow-spring-boot-starter</artifactId>
+    <version>v0.0.1</version>
 </dependency>
 ```
 
-> 如果你还没有把 `0.0.1` 发布到 Maven 仓库，请先看 `Local Installation | 本地安装`（`mvn clean install` 安装到本地仓库）。
-
-2. 在业务项目配置 `application.yml`：
+3. 在业务项目配置 `application.yml`：
 
 ```yaml
 healflow:
@@ -65,7 +74,7 @@ healflow:
   git-branch: "main"
 ```
 
-3. 启动业务应用后，触发一个未处理异常（unhandled exception / controller exception），Starter 会上报 Incident 到 Platform：
+4. 启动业务应用后，触发一个未处理异常（unhandled exception / controller exception），Starter 会上报 Incident 到 Platform：
    - `POST {healflow.server-url}/api/v1/incidents/report`
 
 ### 3) Verify With Demo | 用 Demo 快速验证（可选）
@@ -89,7 +98,26 @@ curl http://localhost:8081/trigger-error
 
 ### Maven Dependency | 依赖引入
 
-- 推荐只引入 `healflow-spring-boot-starter`；它会通过 `HealFlowAutoConfiguration` 自动注册上报组件（无需额外 `@Enable...`）。
+**添加 JitPack 仓库**：
+```xml
+<repositories>
+    <repository>
+        <id>jitpack.io</id>
+        <url>https://jitpack.io</url>
+    </repository>
+</repositories>
+```
+
+**添加依赖**（推荐只引入 `healflow-spring-boot-starter`）：
+```xml
+<dependency>
+    <groupId>com.github.Erlin610</groupId>
+    <artifactId>healflow-spring-boot-starter</artifactId>
+    <version>v0.0.1</version>
+</dependency>
+```
+
+它会通过 `HealFlowAutoConfiguration` 自动注册上报组件（无需额外 `@Enable...`）。
 
 ### Configuration | 配置说明
 
@@ -121,27 +149,42 @@ healflow:
 
 ---
 
-## Local Installation | 本地安装
+## How It Works | 工作原理
 
-当你还没有把 HealFlow 发布到 Maven 仓库时，可以先安装到本地仓库（local repository），然后在其他项目通过 `pom.xml` 直接引入。
+### JitPack 自动构建
 
-### 1) Install To Local Repo | 安装到本地仓库
+HealFlow 使用 [JitPack](https://jitpack.io) 服务，无需手动发布到 Maven 中央仓库：
 
-在本仓库根目录执行：
+1. **自动构建**：当你推送 Git tag（如 `v0.0.1`）到 GitHub 时，JitPack 会自动检测并构建项目
+2. **即时可用**：构建完成后（通常几分钟内），用户就可以通过 Maven 引用
+3. **版本管理**：每个 Git tag 对应一个可用版本
+
+### 发布新版本
+
+如果你是项目维护者，发布新版本只需：
+
+```bash
+git tag v0.0.2
+git push origin v0.0.2
+```
+
+JitPack 会自动构建，用户更新 `<version>v0.0.2</version>` 即可使用新版本。
+
+### 本地开发（可选）
+
+如果你需要在本地修改 HealFlow 源码并测试，可以安装到本地仓库：
 
 ```bash
 mvn -DskipTests clean install
 ```
 
-### 2) Use In Another Project | 在其他项目中引用
-
-在你的业务项目 `pom.xml` 中添加依赖（版本与本仓库一致）：
+然后在业务项目中使用本地版本（不需要 JitPack 仓库）：
 
 ```xml
 <dependency>
-  <groupId>com.healflow</groupId>
-  <artifactId>healflow-spring-boot-starter</artifactId>
-  <version>0.0.1</version>
+    <groupId>com.healflow</groupId>
+    <artifactId>healflow-spring-boot-starter</artifactId>
+    <version>0.0.1</version>
 </dependency>
 ```
 

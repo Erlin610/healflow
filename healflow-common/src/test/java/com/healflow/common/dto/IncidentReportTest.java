@@ -9,7 +9,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.Instant;
-import java.util.Map;
+import java.util.Collections;
 import org.junit.jupiter.api.Test;
 
 class IncidentReportTest {
@@ -30,7 +30,7 @@ class IncidentReportTest {
             null,
             null,
             null,
-            Map.of(),
+            Collections.<String, String>emptyMap(),
             Instant.EPOCH);
 
     assertNull(report.repoUrl());
@@ -52,7 +52,7 @@ class IncidentReportTest {
             "GET",
             "id=1",
             "trace-1",
-            Map.of("profile", "prod"),
+            Collections.singletonMap("profile", "prod"),
             Instant.EPOCH);
     IncidentReport second =
         new IncidentReport(
@@ -66,7 +66,7 @@ class IncidentReportTest {
             "GET",
             "id=1",
             "trace-1",
-            Map.of("profile", "prod"),
+            Collections.singletonMap("profile", "prod"),
             Instant.EPOCH);
     IncidentReport third =
         new IncidentReport(
@@ -80,7 +80,7 @@ class IncidentReportTest {
             "GET",
             "id=1",
             "trace-1",
-            Map.of("profile", "prod"),
+            Collections.singletonMap("profile", "prod"),
             Instant.EPOCH);
 
     assertEquals(first, second);
@@ -107,7 +107,7 @@ class IncidentReportTest {
             "POST",
             "id=1",
             "trace-xyz",
-            Map.of("profile", "prod"),
+            Collections.singletonMap("profile", "prod"),
             null);
 
     String json = mapper.writeValueAsString(report);
@@ -127,17 +127,15 @@ class IncidentReportTest {
   @Test
   void json_backwardsCompatibility_missingRepoUrlDeserializesToNull() throws Exception {
     String legacyJson =
-        """
-        {
-          "appId": "order-service",
-          "branch": "main",
-          "errorType": "NullPointerException",
-          "errorMessage": "boom",
-          "stackTrace": "trace",
-          "environment": {"profile": "prod"},
-          "occurredAt": null
-        }
-        """;
+        "{\n"
+            + "  \"appId\": \"order-service\",\n"
+            + "  \"branch\": \"main\",\n"
+            + "  \"errorType\": \"NullPointerException\",\n"
+            + "  \"errorMessage\": \"boom\",\n"
+            + "  \"stackTrace\": \"trace\",\n"
+            + "  \"environment\": {\"profile\": \"prod\"},\n"
+            + "  \"occurredAt\": null\n"
+            + "}";
 
     IncidentReport parsed = mapper.readValue(legacyJson, IncidentReport.class);
     assertEquals("order-service", parsed.appId());

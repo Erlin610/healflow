@@ -154,7 +154,6 @@ public class IncidentService {
   }
 
   @Async
-  @Transactional
   public void triggerAutoAnalysisIfEnabled(IncidentEntity incident, IncidentReport report) {
     if (incident == null || report == null) {
       return;
@@ -184,8 +183,20 @@ public class IncidentService {
         return;
       }
 
-      Optional<IncidentEntity> analyzingIncident = incidentRepository
-          .findFirstByFingerprintIdAndStatusWithLock(fingerprintId, IncidentStatus.ANALYZING);
+      // PESSIMISTIC_WRITE requires an active transaction. Ensure the locked query runs inside a
+      // transactional method invoked through the Spring proxy so it executes with a tx in this
+      // @Async thread.
+      Optional<IncidentEntity> analyzingIncident;
+      if (applicationContext == null) {
+        analyzingIncident =
+            incidentRepository.findFirstByFingerprintIdAndStatusWithLock(
+                fingerprintId, IncidentStatus.ANALYZING);
+      } else {
+        analyzingIncident =
+            applicationContext
+                .getBean(IncidentService.class)
+                .findFirstAnalyzingIncidentWithLock(fingerprintId);
+      }
 
       if (analyzingIncident.isPresent()) {
         log.info("Fingerprint {} already being analyzed by incident {}, marking current as ANALYZING",
@@ -206,6 +217,15 @@ public class IncidentService {
     } catch (Exception e) {
       log.error("Failed to trigger auto-analysis for incident: {}", incidentId, e);
     }
+  }
+
+  @Transactional
+  public Optional<IncidentEntity> findFirstAnalyzingIncidentWithLock(String fingerprintId) {
+    if (fingerprintId == null || fingerprintId.isBlank()) {
+      return Optional.empty();
+    }
+    return incidentRepository.findFirstByFingerprintIdAndStatusWithLock(
+        fingerprintId, IncidentStatus.ANALYZING);
   }
 
   @Async

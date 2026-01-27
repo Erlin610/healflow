@@ -62,15 +62,10 @@ class FixResultTest {
   @Test
   void json_backwardsCompatibility_missingUsageDeserializesToNull() throws Exception {
     String legacyJson =
-        """
-        {
-          "result": "ok"
-        }
-        """;
+        "{\n" + "  \"result\": \"ok\"\n" + "}";
 
     FixResult parsed = mapper.readValue(legacyJson, FixResult.class);
     assertEquals("ok", parsed.result());
     assertNull(parsed.usage());
   }
 }
-

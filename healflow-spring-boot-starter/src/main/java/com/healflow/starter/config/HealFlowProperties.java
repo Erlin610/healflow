@@ -49,6 +49,6 @@ public class HealFlowProperties {
   }
 
   public void setGitBranch(String gitBranch) {
-    this.gitBranch = (gitBranch == null || gitBranch.isBlank()) ? "main" : gitBranch;
+    this.gitBranch = (gitBranch == null || gitBranch.trim().isEmpty()) ? "main" : gitBranch;
   }
 }

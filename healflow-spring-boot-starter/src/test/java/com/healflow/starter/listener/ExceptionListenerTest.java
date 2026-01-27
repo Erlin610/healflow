@@ -3,15 +3,12 @@ package com.healflow.starter.listener;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 
-import com.healflow.engine.HealflowEngine;
-import com.healflow.engine.HealingResult;
-import com.healflow.engine.Severity;
-import com.healflow.starter.util.GitPropertiesLoader;
+import com.healflow.starter.config.HealFlowProperties;
+import com.healflow.starter.reporter.IncidentReporter;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.springframework.core.io.DefaultResourceLoader;
 
 class ExceptionListenerTest {
 
@@ -33,14 +30,8 @@ class ExceptionListenerTest {
     Thread.UncaughtExceptionHandler previousHandler = (t, e) -> delegated.set(e);
     Thread.setDefaultUncaughtExceptionHandler(previousHandler);
 
-    AtomicReference<String> analyzedReport = new AtomicReference<>();
-    HealflowEngine engine =
-        incidentReport -> {
-          analyzedReport.set(incidentReport);
-          return new HealingResult(Severity.LOW, "ok");
-        };
-    GitPropertiesLoader gitPropertiesLoader = new GitPropertiesLoader(new DefaultResourceLoader());
-    ExceptionListener listener = new ExceptionListener(engine, gitPropertiesLoader);
+    RecordingIncidentReporter reporter = new RecordingIncidentReporter();
+    ExceptionListener listener = new ExceptionListener(reporter);
 
     listener.afterPropertiesSet();
     assertThat(Thread.getDefaultUncaughtExceptionHandler()).isSameAs(listener);
@@ -48,28 +39,28 @@ class ExceptionListenerTest {
     RuntimeException boom = new RuntimeException("boom");
     Thread currentThread = Thread.currentThread();
     assertDoesNotThrow(() -> listener.uncaughtException(currentThread, boom));
+    assertThat(reporter.reported).isSameAs(boom);
     assertThat(delegated.get()).isSameAs(boom);
-    assertThat(analyzedReport.get()).contains("thread=" + currentThread.getName());
-    assertThat(analyzedReport.get()).contains("branch=main");
-    assertThat(analyzedReport.get()).contains("buildTime=2026-01-04T00:00:00Z");
-    assertThat(analyzedReport.get()).contains("java.lang.RuntimeException: boom");
 
     listener.destroy();
     assertThat(Thread.getDefaultUncaughtExceptionHandler()).isSameAs(previousHandler);
   }
 
   @Test
-  void analysisFailureDoesNotBreakHandlerChain() throws Exception {
+  void reportingFailureDoesNotBreakHandlerChain() throws Exception {
     AtomicReference<Throwable> delegated = new AtomicReference<>();
     Thread.UncaughtExceptionHandler previousHandler = (t, e) -> delegated.set(e);
     Thread.setDefaultUncaughtExceptionHandler(previousHandler);
 
-    HealflowEngine engine =
-        incidentReport -> {
-          throw new IllegalStateException("analysis failed");
+    IncidentReporter reporter =
+        new IncidentReporter(new HealFlowProperties()) {
+          @Override
+          public void report(Throwable ex) {
+            throw new IllegalStateException("report failed");
+          }
         };
-    GitPropertiesLoader gitPropertiesLoader = new GitPropertiesLoader(new DefaultResourceLoader());
-    ExceptionListener listener = new ExceptionListener(engine, gitPropertiesLoader);
+
+    ExceptionListener listener = new ExceptionListener(reporter);
     listener.afterPropertiesSet();
 
     RuntimeException boom = new RuntimeException("boom");
@@ -82,9 +73,8 @@ class ExceptionListenerTest {
     Thread.UncaughtExceptionHandler previousHandler = (t, e) -> {};
     Thread.setDefaultUncaughtExceptionHandler(previousHandler);
 
-    HealflowEngine engine = incidentReport -> new HealingResult(Severity.LOW, "ok");
-    GitPropertiesLoader gitPropertiesLoader = new GitPropertiesLoader(new DefaultResourceLoader());
-    ExceptionListener listener = new ExceptionListener(engine, gitPropertiesLoader);
+    RecordingIncidentReporter reporter = new RecordingIncidentReporter();
+    ExceptionListener listener = new ExceptionListener(reporter);
     listener.afterPropertiesSet();
 
     Thread.UncaughtExceptionHandler newHandler = (t, e) -> {};
@@ -93,4 +83,18 @@ class ExceptionListenerTest {
     listener.destroy();
     assertThat(Thread.getDefaultUncaughtExceptionHandler()).isSameAs(newHandler);
   }
+
+  private static final class RecordingIncidentReporter extends IncidentReporter {
+    private Throwable reported;
+
+    private RecordingIncidentReporter() {
+      super(new HealFlowProperties());
+    }
+
+    @Override
+    public void report(Throwable ex) {
+      this.reported = ex;
+    }
+  }
 }
+

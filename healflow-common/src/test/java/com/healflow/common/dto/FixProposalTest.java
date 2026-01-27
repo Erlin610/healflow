@@ -65,12 +65,10 @@ class FixProposalTest {
   @Test
   void json_backwardsCompatibility_missingStructuredOutputDeserializesToNull() throws Exception {
     String legacyJson =
-        """
-        {
-          "sessionId": "sid",
-          "fullText": "full"
-        }
-        """;
+        "{\n"
+            + "  \"sessionId\": \"sid\",\n"
+            + "  \"fullText\": \"full\"\n"
+            + "}";
 
     FixProposal parsed = mapper.readValue(legacyJson, FixProposal.class);
     assertEquals("sid", parsed.sessionId());
@@ -78,4 +76,3 @@ class FixProposalTest {
     assertEquals("full", parsed.fullText());
   }
 }
-

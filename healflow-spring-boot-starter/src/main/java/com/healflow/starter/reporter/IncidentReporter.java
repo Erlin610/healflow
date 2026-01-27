@@ -2,10 +2,16 @@ package com.healflow.starter.reporter;
 
 import com.healflow.common.dto.IncidentReport;
 import com.healflow.starter.config.HealFlowProperties;
+import java.io.PrintWriter;
+import java.io.StringWriter;
+import java.time.Instant;
+import java.util.Collections;
+import java.util.Objects;
+import javax.servlet.http.HttpServletRequest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
-import org.springframework.web.client.RestClient;
+import org.springframework.web.client.RestTemplate;
 import org.springframework.web.context.request.RequestAttributes;
 import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.context.request.ServletRequestAttributes;
@@ -14,25 +20,26 @@ public class IncidentReporter {
   private static final Logger log = LoggerFactory.getLogger(IncidentReporter.class);
 
   private final HealFlowProperties properties;
-  private final RestClient restClient;
+  private final RestTemplate restTemplate;
 
   public IncidentReporter(HealFlowProperties properties) {
-    this(properties, RestClient.builder().baseUrl(properties.getServerUrl()).build());
+    this(properties, new RestTemplate());
   }
 
-  IncidentReporter(HealFlowProperties properties, RestClient restClient) {
-    this.properties = properties;
-    this.restClient = restClient;
+  IncidentReporter(HealFlowProperties properties, RestTemplate restTemplate) {
+    this.properties = Objects.requireNonNull(properties, "properties");
+    this.restTemplate = Objects.requireNonNull(restTemplate, "restTemplate");
   }
 
   public void report(Throwable ex) {
-    if (!properties.isEnabled()) return;
+    if (!properties.isEnabled()) {
+      return;
+    }
 
     try {
       HttpContext httpContext = captureHttpContext();
-      // 构造 DTO（Git 信息来自配置；HTTP 上下文尽力提取，非 HTTP 场景为 null）
       IncidentReport report =
-              new IncidentReport(
+          new IncidentReport(
               properties.getAppId(),
               properties.getGitUrl(),
               defaultBranch(properties.getGitBranch()),
@@ -43,38 +50,34 @@ public class IncidentReporter {
               httpContext.requestMethod(),
               httpContext.requestParams(),
               httpContext.traceId(),
-              java.util.Collections.emptyMap(),
-              java.time.Instant.now());
+              Collections.<String, String>emptyMap(),
+              Instant.now());
 
-      // 发送
-      restClient
-          .post()
-          .uri("/api/v1/incidents/report")
-          .body(report)
-          .retrieve()
-          .toBodilessEntity();
+      restTemplate.postForEntity(
+          joinUrl(properties.getServerUrl(), "/api/v1/incidents/report"), report, Void.class);
 
-      log.info("✅ HealFlow: Incident reported successfully.");
+      log.info("HealFlow: Incident reported successfully.");
     } catch (Exception e) {
-      log.warn("❌ HealFlow: Failed to report incident: {}", e.getMessage());
+      log.warn("HealFlow: Failed to report incident: {}", e.getMessage());
     }
   }
 
   private static String defaultBranch(String branch) {
-    return (branch == null || branch.isBlank()) ? "main" : branch;
+    return (branch == null || branch.trim().isEmpty()) ? "main" : branch;
   }
 
-  private String getStackTraceAsString(Throwable throwable) {
-    java.io.StringWriter sw = new java.io.StringWriter();
-    throwable.printStackTrace(new java.io.PrintWriter(sw));
+  private static String getStackTraceAsString(Throwable throwable) {
+    StringWriter sw = new StringWriter();
+    throwable.printStackTrace(new PrintWriter(sw));
     return sw.toString();
   }
 
   private static HttpContext captureHttpContext() {
     RequestAttributes attributes = RequestContextHolder.getRequestAttributes();
-    if (!(attributes instanceof ServletRequestAttributes servletAttributes)) {
+    if (!(attributes instanceof ServletRequestAttributes)) {
       return HttpContext.empty();
     }
+    ServletRequestAttributes servletAttributes = (ServletRequestAttributes) attributes;
 
     String requestUrl = null;
     String requestMethod = null;
@@ -82,9 +85,10 @@ public class IncidentReporter {
     String traceId = null;
 
     try {
-      var request = servletAttributes.getRequest();
+      HttpServletRequest request = servletAttributes.getRequest();
       if (request != null) {
-        requestUrl = normalize(request.getRequestURL() != null ? request.getRequestURL().toString() : null);
+        requestUrl =
+            normalize(request.getRequestURL() != null ? request.getRequestURL().toString() : null);
         requestMethod = normalize(request.getMethod());
         requestParams = normalize(request.getQueryString());
 
@@ -108,6 +112,24 @@ public class IncidentReporter {
     return new HttpContext(requestUrl, requestMethod, requestParams, traceId);
   }
 
+  private static String joinUrl(String baseUrl, String path) {
+    if (baseUrl == null) {
+      return path;
+    }
+    if (path == null) {
+      return baseUrl;
+    }
+    boolean baseEndsWithSlash = baseUrl.endsWith("/");
+    boolean pathStartsWithSlash = path.startsWith("/");
+    if (baseEndsWithSlash && pathStartsWithSlash) {
+      return baseUrl + path.substring(1);
+    }
+    if (!baseEndsWithSlash && !pathStartsWithSlash) {
+      return baseUrl + "/" + path;
+    }
+    return baseUrl + path;
+  }
+
   private static String normalize(String value) {
     if (value == null) {
       return null;
@@ -116,9 +138,39 @@ public class IncidentReporter {
     return trimmed.isEmpty() ? null : trimmed;
   }
 
-  private record HttpContext(String requestUrl, String requestMethod, String requestParams, String traceId) {
+  private static final class HttpContext {
+
+    private final String requestUrl;
+    private final String requestMethod;
+    private final String requestParams;
+    private final String traceId;
+
+    private HttpContext(String requestUrl, String requestMethod, String requestParams, String traceId) {
+      this.requestUrl = requestUrl;
+      this.requestMethod = requestMethod;
+      this.requestParams = requestParams;
+      this.traceId = traceId;
+    }
+
     private static HttpContext empty() {
       return new HttpContext(null, null, null, null);
     }
+
+    private String requestUrl() {
+      return requestUrl;
+    }
+
+    private String requestMethod() {
+      return requestMethod;
+    }
+
+    private String requestParams() {
+      return requestParams;
+    }
+
+    private String traceId() {
+      return traceId;
+    }
   }
 }
+

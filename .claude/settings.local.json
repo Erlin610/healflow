@@ -83,7 +83,8 @@
       "Bash(node --version)",
       "Bash(npm --version)",
       "Bash(npm install -g @google/gemini-cli)",
-      "Bash(grep:*)"
+      "Bash(grep:*)",
+      "Skill(omo)"
     ]
   }
 }

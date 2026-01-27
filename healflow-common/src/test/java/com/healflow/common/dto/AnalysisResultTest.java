@@ -65,12 +65,10 @@ class AnalysisResultTest {
   @Test
   void json_backwardsCompatibility_missingFullTextDeserializesToNull() throws Exception {
     String legacyJson =
-        """
-        {
-          "sessionId": "sid",
-          "structuredOutput": "{}"
-        }
-        """;
+        "{\n"
+            + "  \"sessionId\": \"sid\",\n"
+            + "  \"structuredOutput\": \"{}\"\n"
+            + "}";
 
     AnalysisResult parsed = mapper.readValue(legacyJson, AnalysisResult.class);
     assertEquals("sid", parsed.sessionId());
@@ -78,4 +76,3 @@ class AnalysisResultTest {
     assertNull(parsed.fullText());
   }
 }
-

@@ -13,17 +13,16 @@ public final class Arguments {
 
   public static String requireNonBlank(String value, String name) {
     String parameterName = requireName(name);
-    if (value == null || value.isBlank()) {
+    if (value == null || value.trim().isEmpty()) {
       throw new IllegalArgumentException(parameterName + " must not be blank");
     }
     return value;
   }
 
   private static String requireName(String name) {
-    if (name == null || name.isBlank()) {
+    if (name == null || name.trim().isEmpty()) {
       throw new IllegalArgumentException("name must not be blank");
     }
     return name;
   }
 }
-

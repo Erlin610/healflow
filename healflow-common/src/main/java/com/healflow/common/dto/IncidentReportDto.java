@@ -2,16 +2,81 @@ package com.healflow.common.dto;
 
 import com.healflow.common.validation.Arguments;
 import jakarta.validation.constraints.NotBlank;
+import java.util.Objects;
 
-public record IncidentReportDto(
-    @NotBlank String appName,
-    @NotBlank String stackTrace,
-    @NotBlank String branch) {
+public class IncidentReportDto {
 
-  public IncidentReportDto {
-    appName = Arguments.requireNonBlank(appName, "appName");
-    stackTrace = Arguments.requireNonBlank(stackTrace, "stackTrace");
-    branch = Arguments.requireNonBlank(branch, "branch");
+  @NotBlank private String appName;
+  @NotBlank private String stackTrace;
+  @NotBlank private String branch;
+
+  public IncidentReportDto() {}
+
+  public IncidentReportDto(String appName, String stackTrace, String branch) {
+    this.appName = Arguments.requireNonBlank(appName, "appName");
+    this.stackTrace = Arguments.requireNonBlank(stackTrace, "stackTrace");
+    this.branch = Arguments.requireNonBlank(branch, "branch");
+  }
+
+  // Record-style accessors for source compatibility with previous record usage.
+  public String appName() {
+    return appName;
+  }
+
+  public String stackTrace() {
+    return stackTrace;
+  }
+
+  public String branch() {
+    return branch;
+  }
+
+  public String getAppName() {
+    return appName;
+  }
+
+  public void setAppName(String appName) {
+    this.appName = Arguments.requireNonBlank(appName, "appName");
+  }
+
+  public String getStackTrace() {
+    return stackTrace;
+  }
+
+  public void setStackTrace(String stackTrace) {
+    this.stackTrace = Arguments.requireNonBlank(stackTrace, "stackTrace");
+  }
+
+  public String getBranch() {
+    return branch;
+  }
+
+  public void setBranch(String branch) {
+    this.branch = Arguments.requireNonBlank(branch, "branch");
+  }
+
+  @Override
+  public boolean equals(Object o) {
+    if (this == o) {
+      return true;
+    }
+    if (!(o instanceof IncidentReportDto)) {
+      return false;
+    }
+    IncidentReportDto that = (IncidentReportDto) o;
+    return Objects.equals(appName, that.appName)
+        && Objects.equals(stackTrace, that.stackTrace)
+        && Objects.equals(branch, that.branch);
+  }
+
+  @Override
+  public int hashCode() {
+    return Objects.hash(appName, stackTrace, branch);
+  }
+
+  @Override
+  public String toString() {
+    return "IncidentReportDto[" + "appName=" + appName + ", stackTrace=" + stackTrace + ", branch=" + branch + ']';
   }
 
   public static Builder builder() {

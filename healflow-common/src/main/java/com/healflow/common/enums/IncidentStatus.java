@@ -13,14 +13,22 @@ public enum IncidentStatus {
     if (target == null || target == this) {
       return false;
     }
-    return switch (this) {
-      case OPEN -> target == ANALYZING || target == IGNORED || target == SKIP;
-      case SKIP -> false;
-      case ANALYZING -> target == PENDING_REVIEW || target == IGNORED;
-      case PENDING_REVIEW -> target == FIXED || target == IGNORED;
-      case FIXED -> target == REGRESSION;
-      case REGRESSION -> target == ANALYZING || target == IGNORED;
-      case IGNORED -> false;
-    };
+    switch (this) {
+      case OPEN:
+        return target == ANALYZING || target == IGNORED || target == SKIP;
+      case SKIP:
+        return false;
+      case ANALYZING:
+        return target == PENDING_REVIEW || target == IGNORED;
+      case PENDING_REVIEW:
+        return target == FIXED || target == IGNORED;
+      case FIXED:
+        return target == REGRESSION;
+      case REGRESSION:
+        return target == ANALYZING || target == IGNORED;
+      case IGNORED:
+      default:
+        return false;
+    }
   }
 }

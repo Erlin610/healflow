@@ -1,1 +1,2 @@
-# Intentionally empty: Spring Boot 3.x uses AutoConfiguration.imports instead.
+org.springframework.boot.autoconfigure.EnableAutoConfiguration=\
+com.healflow.starter.config.HealFlowAutoConfiguration
